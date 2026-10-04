@@ -1,0 +1,6 @@
+{
+ "name": "@kitty/admin", "private": true, "type": "module",
+ "scripts": { "dev": "vite --host 127.0.0.1", "build": "tsc --noEmit && vite build --target es2022", "check": "tsc --noEmit" },
+ "dependencies": { "firebase": "^12.3.0" },
+ "devDependencies": { "vite": "^6.1.0", "typescript": "^5.9.0" }
+}

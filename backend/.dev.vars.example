@@ -1,0 +1,6 @@
+# Copy to .dev.vars, never commit it. Generate a random 32-byte base64 key with scripts/create-vault-key.mjs.
+VAULT_KEY=
+# Exact UID from verified owner sign-in. Empty means ALL admin routes deny access.
+OWNER_UID=
+# Public Firebase Web API key is used for account-status/revocation checks.
+FIREBASE_WEB_API_KEY=

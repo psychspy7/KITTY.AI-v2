@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.Kitty" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:fontFamily">sans</item><item name="android:windowLightStatusBar">false</item><item name="android:statusBarColor">#100D20</item><item name="android:navigationBarColor">#100D20</item><item name="android:windowActionModeOverlay">true</item><item name="android:windowBackground">#100D20</item>
+    </style>
+    <style name="Theme.Kitty.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#100D20</item><item name="windowSplashScreenAnimatedIcon">@drawable/kitty_mark</item><item name="postSplashScreenTheme">@style/Theme.Kitty</item>
+    </style>
+</resources>

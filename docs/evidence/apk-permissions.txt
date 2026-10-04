@@ -1,0 +1,6 @@
+package: com.kitty.ai
+uses-permission: name='android.permission.INTERNET'
+uses-permission: name='android.permission.ACCESS_NETWORK_STATE'
+uses-permission: name='com.google.android.providers.gsf.permission.READ_GSERVICES'
+permission: com.kitty.ai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+uses-permission: name='com.kitty.ai.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION'

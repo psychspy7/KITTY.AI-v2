@@ -1,0 +1,5 @@
+{
+  "auth": {
+    "providers": {"googleSignIn": {"oAuthBrandDisplayName": "KITTY AI", "supportEmail": "viratanand1221@gmail.com"}}
+  }
+}

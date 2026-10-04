@@ -1,0 +1,20 @@
+{
+  "name": "kitty-ai",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "backend",
+    "admin"
+  ],
+  "overrides": {
+    "@grpc/grpc-js": "1.14.5",
+    "sharp": "0.35.5",
+    "undici": "7.30.0"
+  },
+  "scripts": {
+    "test": "npm run test -w backend",
+    "check": "npm run check -w backend && npm run check -w admin",
+    "build": "npm run build -w admin && npm run build -w backend",
+    "dev": "npm run dev -w backend"
+  }
+}

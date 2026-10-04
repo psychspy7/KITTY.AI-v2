@@ -1,0 +1,15 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE settings (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
+CREATE TABLE providers (id TEXT PRIMARY KEY, kind TEXT NOT NULL CHECK(kind IN ('groq','gemini')), model TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, encrypted_key TEXT NOT NULL);
+CREATE TABLE profiles (uid TEXT PRIMARY KEY, consent INTEGER NOT NULL DEFAULT 0 CHECK(consent IN (0,1)), disabled INTEGER NOT NULL DEFAULT 0, daily_limit INTEGER);
+CREATE TABLE conversations (uid TEXT NOT NULL, id TEXT NOT NULL, title TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(uid,id));
+CREATE TABLE messages (uid TEXT NOT NULL, id TEXT NOT NULL, conversation_id TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('user','assistant')), text TEXT NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL, request_id TEXT NOT NULL, PRIMARY KEY(uid,id), FOREIGN KEY(uid,conversation_id) REFERENCES conversations(uid,id) ON DELETE CASCADE);
+CREATE INDEX messages_context ON messages(uid,conversation_id,created_at);
+CREATE TABLE memories (uid TEXT NOT NULL, id TEXT NOT NULL, text TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(uid,id));
+CREATE TABLE usage (uid TEXT NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(uid,day,kind));
+CREATE TABLE requests (uid TEXT NOT NULL, id TEXT NOT NULL, conversation_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL, response TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL, PRIMARY KEY(uid,id));
+CREATE UNIQUE INDEX one_active_per_user ON requests(uid) WHERE status = 'running';
+CREATE TABLE announcements (id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE notice_reads (uid TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY(uid,id));
+CREATE TABLE audit (id TEXT PRIMARY KEY, owner_uid TEXT NOT NULL, action TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE examples (uid TEXT NOT NULL, message_id TEXT NOT NULL, created_at INTEGER NOT NULL, PRIMARY KEY(uid,message_id), FOREIGN KEY(uid,message_id) REFERENCES messages(uid,id) ON DELETE CASCADE);
