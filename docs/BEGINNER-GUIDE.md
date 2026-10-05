@@ -13,7 +13,7 @@ To redeploy browser sign-in after changing its source: run `npm run build -w adm
 
 KITTY is created by **Virat with the help of Kitty Corp**. This guide connects the source to your own accounts. You own the source, Firebase project, Cloudflare database and APK signing key.
 
-**Already deployed:** [KITTY owner console](https://kitty-ai-v2.kitty-ai.workers.dev) and [signed KITTY 1.0.3 APK](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk). Google sign-in configuration, domains, D1, release fingerprints and exact owner UID are configured. Groq and the free Cloudflare fallback are enabled and have passed live provider streaming tests. Phone Google login still needs acceptance; see the validation report. The infrastructure steps below document setup from scratch; do not recreate the existing database or replace the preserved signing/vault keys.
+**Already deployed:** [KITTY owner console](https://kitty-ai-v2.kitty-ai.workers.dev) and [signed KITTY 1.0.3 APK](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk). Google sign-in configuration, domains, D1, release fingerprints and exact owner UID are configured. Groq and the free Cloudflare fallback are enabled and have passed live provider streaming tests. The owner confirmed phone Google login reaches chat in 1.0.3; see the validation report for remaining checks. The infrastructure steps below document setup from scratch; do not recreate the existing database or replace the preserved signing/vault keys.
 
 ## 1. What runs where
 

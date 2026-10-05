@@ -7,4 +7,4 @@ APK bytes: **3542551**
 
 APK SHA-256: f7873810db3140734e8e92b87e2e8ae0b72945a71eb21cd30baeb36a174864fb
 
-See [validation](VALIDATION.md), [beginner guide](BEGINNER-GUIDE.md), [deployment](DEPLOYMENT.md), and [public certificate fingerprints](OWNER-SIGNING.txt). Older APKs are historical artifacts. Android Google login and the complete updater installation are not claimed passed while phone acceptance is pending.
+See [validation](VALIDATION.md), [beginner guide](BEGINNER-GUIDE.md), [deployment](DEPLOYMENT.md), and [public certificate fingerprints](OWNER-SIGNING.txt). Older APKs are historical artifacts. The owner confirmed 1.0.3 Google login reaches chat. Completed Android replies and the full in-app updater installation still need acceptance.

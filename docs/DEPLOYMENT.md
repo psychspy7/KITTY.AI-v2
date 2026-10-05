@@ -14,4 +14,4 @@ Settings → Check for updates uses published 1.0.3 metadata/checksum. Future re
 
 For browser-page changes: npm run build -w admin, node scripts/prepare-auth-hosting.mjs, then firebase deploy --only hosting --project kittyai-f743c. Deploy the Worker separately with npm run build -w admin and npx wrangler deploy --config backend/wrangler.toml. Do not recreate the database or replace existing vault/signing keys.
 
-Successful Android Google login/chat and the complete updater installer flow still need phone acceptance. See [validation](VALIDATION.md) and [beginner guide](BEGINNER-GUIDE.md).
+The owner confirmed Android Google sign-in reaches chat in 1.0.3. A completed Android chat reply and the complete updater installer flow still need acceptance. See [validation](VALIDATION.md) and [beginner guide](BEGINNER-GUIDE.md).
