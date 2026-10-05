@@ -16,3 +16,6 @@ artifacts/
 admin/public/downloads/
 assets/brand/kitty-icon-master.png
 *.log
+# Local Firebase and Kotlin build caches
+.firebase/
+android/.kotlin/

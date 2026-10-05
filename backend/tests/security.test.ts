@@ -12,8 +12,9 @@ import { readFileSync } from "node:fs";
 import { SignJWT, generateKeyPair, exportJWK, createLocalJWKSet } from "jose";
 import { identityFromClaims, isOwner, verifyToken } from "../src/auth";
 import { seal, unseal } from "../src/vault";
-import { sseData, speech } from "../src/providers";
-import { route, trustedRelease } from "../src/index";
+import { sseData, speech, chat, CLOUDFLARE_MODELS, cloudflareContext } from "../src/providers";
+import { challenge, completeBrowserLogin, browserLoginStatus, verifyGoogleCredential } from "../src/browserLogin";
+import worker, { route, trustedRelease } from "../src/index";
 import { DEFAULT_CONFIG, relevantMemories } from "../src/config";
 import type { Env, Identity } from "../src/types";
 let mf: Miniflare, env: Env;
@@ -63,13 +64,14 @@ beforeAll(async () => {
     OWNER_UID: owner.uid,
     OWNER_EMAIL: owner.email,
     FIREBASE_PROJECT_ID: "kittyai-f743c",
+    GOOGLE_WEB_CLIENT_ID: "test-google-client",
     VAULT_KEY: btoa("12345678901234567890123456789012"),
     RELEASE_REPOSITORY: "psychspy7/KITTY.AI-v2",
   };
-  for (const sql of readFileSync(
-    new URL("../migrations/0001.sql", import.meta.url),
+  for (const sql of ["0001.sql", "0002_login_and_free_ai.sql"].map(file => readFileSync(
+    new URL(`../migrations/${file}`, import.meta.url),
     "utf8",
-  )
+  )).join("\n")
     .split(";")
     .map((s) => s.trim())
     .filter(Boolean))
@@ -94,6 +96,7 @@ beforeEach(async () => {
     "announcements",
     "notice_reads",
     "audit",
+    "browser_logins",
   ])
     await env.DB.prepare(`DELETE FROM ${table}`).run();
 });
@@ -553,3 +556,118 @@ describe("streaming reliability, consent and limits", () => {
     ).toBe("cancelled");
   });
 });
+
+
+describe("browser sign-in handoff", () => {
+  const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+  const credential = "private-google-credential".repeat(10);
+  async function start() {
+    const response = await request(alice, "login/browser/start", "POST", { challenge: await challenge(verifier) });
+    expect(response.status).toBe(200);
+    return await response.json() as {id: string; expiresAt: number};
+  }
+  it("matches RFC 7636 and allows starting before authentication", async () => {
+    expect(await challenge(verifier)).toBe("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
+    const verify = vi.fn().mockRejectedValue(new Error("Must not authenticate a start request"));
+    const response = await route(new Request("https://kitty.example/api/login/browser/start", {method:"POST", body:JSON.stringify({challenge: await challenge(verifier)})}), env, ctx, verify);
+    expect(response.status).toBe(200);
+    expect(verify).not.toHaveBeenCalled();
+  });
+  it("redirects the app browser to the first-party Firebase sign-in page and scopes CORS to completion", async () => {
+    const id=crypto.randomUUID();
+    const redirected=await route(new Request(`https://kitty.example/phone-login.html?session=${id}`),env,ctx);
+    expect(redirected.status).toBe(302);
+    expect(redirected.headers.get("Location")).toBe(`https://kittyai-f743c.firebaseapp.com/phone-login.html?session=${id}`);
+    const options=new Request("https://kitty.example/api/login/browser/complete",{method:"OPTIONS",headers:{Origin:"https://kittyai-f743c.firebaseapp.com"}});
+    expect((await worker.fetch(options,env,ctx)).headers.get("Access-Control-Allow-Origin")).toBe("https://kittyai-f743c.firebaseapp.com");
+    const admin=new Request("https://kitty.example/api/admin/config",{headers:{Origin:"https://kittyai-f743c.firebaseapp.com"}});
+    const forbidden=await worker.fetch(admin,env,ctx);
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.headers.has("Access-Control-Allow-Origin")).toBe(false);
+    const unsigned=new Request("https://kitty.example/api/login/browser/complete",{method:"POST",headers:{Origin:"https://kittyai-f743c.firebaseapp.com"},body:"{}"});
+    const rejected=await worker.fetch(unsigned,env,ctx);
+    expect(rejected.status).toBe(401);
+    expect(rejected.headers.get("Access-Control-Allow-Origin")).toBe("https://kittyai-f743c.firebaseapp.com");
+  });
+  it("keeps credentials pending and rejects a stolen public link without its private proof", async () => {
+    const {id} = await start();
+    expect((await browserLoginStatus(env, {id, verifier})).status).toBe(202);
+    await expect(browserLoginStatus(env, {id, verifier: "x".repeat(43)})).rejects.toMatchObject({status:404});
+  });
+  it("encrypts the Google credential, binds the verified UID, and consumes it only once", async () => {
+    const {id} = await start();
+    const verify = vi.fn().mockResolvedValue(undefined);
+    await completeBrowserLogin(env, alice, {id, googleIdToken:credential}, verify);
+    expect(verify).toHaveBeenCalledWith(credential, alice.email, "test-google-client");
+    const row = await env.DB.prepare("SELECT encrypted_credential,uid FROM browser_logins WHERE id=?").bind(id).first<{encrypted_credential:string;uid:string}>();
+    expect(row?.uid).toBe(alice.uid);
+    expect(row?.encrypted_credential).not.toContain(credential);
+    expect(await (await browserLoginStatus(env, {id, verifier})).json()).toEqual({googleIdToken:credential,uid:alice.uid});
+    await expect(browserLoginStatus(env, {id, verifier})).rejects.toMatchObject({status:404});
+  });
+  it("rejects replayed browser approval and an invalid Google token", async () => {
+    const {id} = await start();
+    await expect(completeBrowserLogin(env, alice, {id, googleIdToken:credential}, async () => { throw new Error("Invalid Google signature"); })).rejects.toThrow("Invalid Google signature");
+    await completeBrowserLogin(env, alice, {id, googleIdToken:credential}, async () => {});
+    await expect(completeBrowserLogin(env, bob, {id, googleIdToken:credential}, async () => {})).rejects.toMatchObject({status:409});
+  });
+  it("expires and cancels unconsumed sign-ins", async () => {
+    const {id} = await start();
+    await env.DB.prepare("UPDATE browser_logins SET expires_at=0 WHERE id=?").bind(id).run();
+    await expect(browserLoginStatus(env, {id, verifier})).rejects.toMatchObject({status:404});
+    const next = await start();
+    expect((await browserLoginStatus(env, {id:next.id, verifier}, true)).status).toBe(200);
+    await expect(completeBrowserLogin(env, alice, {id:next.id,googleIdToken:credential}, async () => {})).rejects.toMatchObject({status:409});
+  });
+  it("lets at most one simultaneous poll consume the credential", async () => {
+    const {id} = await start();
+    await completeBrowserLogin(env, alice, {id, googleIdToken:credential}, async () => {});
+    const attempts = await Promise.allSettled([browserLoginStatus(env,{id,verifier}),browserLoginStatus(env,{id,verifier})]);
+    expect(attempts.filter(r => r.status === "fulfilled")).toHaveLength(1);
+  });
+  it("rejects foreign origins and limits anonymous starts", async () => {
+    await expect(route(new Request("https://kitty.example/api/login/browser/start", {method:"POST", headers:{Origin:"https://evil.example"},body:"{}"}),env,ctx)).rejects.toMatchObject({status:403});
+    for (let i=0;i<30;i++) await start();
+    await expect(start()).rejects.toMatchObject({status:429});
+  });
+  it("requires the expected Google audience, signature and matching verified email", async () => {
+    const {privateKey,publicKey}=await generateKeyPair("RS256");
+    const jwk=await exportJWK(publicKey); jwk.kid="google-test";
+    const keys=createLocalJWKSet({keys:[jwk]});
+    const token=await new SignJWT({email:alice.email,email_verified:true}).setProtectedHeader({alg:"RS256",kid:jwk.kid}).setIssuer("https://accounts.google.com").setAudience("test-google-client").setSubject("google-alice").setIssuedAt().setExpirationTime("5m").sign(privateKey);
+    await expect(verifyGoogleCredential(token,alice.email,"test-google-client",keys)).resolves.toBeUndefined();
+    await expect(verifyGoogleCredential(token,bob.email,"test-google-client",keys)).rejects.toMatchObject({status:401});
+    await expect(verifyGoogleCredential(token,alice.email,"wrong-client",keys)).rejects.toMatchObject({status:401});
+  });
+});
+
+describe("Cloudflare free chat", () => {
+  const p = {id:"cloudflare-free",kind:"cloudflare" as const,model:CLOUDFLARE_MODELS[0],enabled:1,encrypted_key:""};
+  it("bounds Unicode context while preserving core instructions and the latest question", () => {
+    const messages = [{role:"system" as const,content:"Core identity"},{role:"user" as const,content:"猫".repeat(8000)},{role:"assistant" as const,content:"Older answer"},{role:"user" as const,content:"Latest question"}];
+    expect(cloudflareContext(messages)).toEqual([messages[0],messages[3]]);
+    expect(() => cloudflareContext([{role:"system",content:"Core identity"},{role:"user",content:"猫".repeat(8000)}])).toThrow("too long");
+  });
+  it("blocks selecting a speech model for the Groq chat endpoint", async () => {
+    await expect(request(owner,"admin/providers","PUT",{id:"groq-main",kind:"groq",model:"canopylabs/orpheus-v1-english",enabled:true,key:"test-provider-key"})).rejects.toMatchObject({status:400});
+  });
+  it("streams without a provider key and forwards cancellation", async () => {
+    const signal=new AbortController().signal;
+    const run=vi.fn().mockResolvedValue(new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('data: {"response":"Hello Sir."}\n\ndata: [DONE]\n\n'));c.close();}}));
+    const parts=[];
+    for await(const part of chat(p,{...env,VAULT_KEY:undefined,AI:{run} as unknown as Ai},[{role:"user",content:"Hi"}],128,signal))parts.push(part);
+    expect(parts.join("")).toBe("Hello Sir.");
+    expect(run).toHaveBeenCalledWith(p.model,expect.objectContaining({stream:true,max_tokens:128}),{signal});
+  });
+  it("fails clearly on missing binding, unknown models, exhausted allowance and cancellation", async () => {
+    const consume=async (e:Env,model=p.model,signal=new AbortController().signal) => { for await(const _ of chat({...p,model},e,[{role:"user",content:"Hi"}],128,signal)){} };
+    await expect(consume({...env,AI:undefined})).rejects.toMatchObject({status:503});
+    const run=vi.fn().mockRejectedValue(new Error("Free limit"));
+    const ai={...env,AI:{run} as unknown as Ai};
+    await expect(consume(ai,"unsupported" as typeof p.model)).rejects.toMatchObject({status:400});
+    await expect(consume(ai)).rejects.toMatchObject({status:503});
+    await expect(consume(ai,p.model,AbortSignal.abort())).rejects.toMatchObject({name:"AbortError"});
+  });
+});
+
+it("pins first-party APK updates as well as the owner repository",()=>{expect(trustedRelease("https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk",env.RELEASE_REPOSITORY)).toBe(true);expect(trustedRelease("https://evil.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk",env.RELEASE_REPOSITORY)).toBe(false);expect(trustedRelease("https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk?x=1",env.RELEASE_REPOSITORY)).toBe(false);});

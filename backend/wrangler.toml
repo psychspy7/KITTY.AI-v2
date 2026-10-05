@@ -7,11 +7,15 @@ workers_dev = true
 FIREBASE_PROJECT_ID = "kittyai-f743c"
 OWNER_EMAIL = "viratanand1221@gmail.com"
 RELEASE_REPOSITORY = "psychspy7/KITTY.AI-v2"
+GOOGLE_WEB_CLIENT_ID = "34203306703-u82o8grcs0qr2j30dgsf84bue2v7is22.apps.googleusercontent.com"
+
+[ai]
+binding = "AI"
 
 [assets]
 directory = "../admin/dist"
 binding = "ASSETS"
-run_worker_first = ["/api/*"]
+run_worker_first = ["/api/*", "/phone-login*"]
 
 [[d1_databases]]
 binding = "DB"

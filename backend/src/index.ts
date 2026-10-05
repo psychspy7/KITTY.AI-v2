@@ -2,7 +2,8 @@ import { z } from "zod";
 import { authenticate, isOwner } from "./auth";
 import { configSchema, getConfig, relevantMemories } from "./config";
 import { seal, unseal } from "./vault";
-import { chat, speech } from "./providers";
+import { chat, speech, CLOUDFLARE_MODELS, isGroqChatModel } from "./providers";
+import { startBrowserLogin, browserLoginStatus, completeBrowserLogin } from "./browserLogin";
 import {
   ApiError,
   type Env,
@@ -12,6 +13,12 @@ import {
 } from "./types";
 
 const idSchema = z.string().regex(/^[a-zA-Z0-9-]{1,80}$/);
+const PHONE_AUTH_ORIGIN = "https://kittyai-f743c.firebaseapp.com";
+function browserCors(request: Request): Record<string,string> {
+  return request.headers.get("Origin") === PHONE_AUTH_ORIGIN && new URL(request.url).pathname === "/api/login/browser/complete"
+    ? {"Access-Control-Allow-Origin":PHONE_AUTH_ORIGIN,"Access-Control-Allow-Methods":"POST","Access-Control-Allow-Headers":"Authorization, Content-Type","Vary":"Origin"}
+    : {};
+}
 const json = (value: unknown, status = 200) =>
   Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 async function body(request: Request): Promise<unknown> {
@@ -264,6 +271,7 @@ async function streamChat(
         };
         const task = (async () => {
           let status = "failed";
+          let failureMessage = "Reply interrupted. Retry this message.";
           try {
             for (let i = 0; i < available.length; i++) {
               try {
@@ -291,8 +299,9 @@ async function streamChat(
                   throw error;
               }
             }
-          } catch {
+          } catch (error) {
             status = abort.signal.aborted ? "cancelled" : "failed";
+            if (error instanceof ApiError) failureMessage = error.message;
           } finally {
             clearTimeout(timeout);
             await env.DB.batch([
@@ -319,7 +328,7 @@ async function streamChat(
                     message:
                       status === "cancelled"
                         ? "Reply stopped."
-                        : "Reply interrupted. Retry this message.",
+                        : failureMessage,
                   },
             );
             if (!cancelled) controller.close();
@@ -367,12 +376,26 @@ export async function route(
   const url = new URL(request.url),
     path = url.pathname,
     method = request.method;
+  if (path === "/phone-login" || path === "/phone-login.html") {
+    const destination = new URL("/phone-login.html", PHONE_AUTH_ORIGIN);
+    const session = url.searchParams.get("session");
+    if (session && /^[a-f0-9-]{36}$/.test(session)) destination.searchParams.set("session",session);
+    return Response.redirect(destination.toString(),302);
+  }
   if (!path.startsWith("/api/")) return env.ASSETS.fetch(request);
   if (path === "/api/health")
     return json({ service: "KITTY", version: "1.0.0" });
   const origin = request.headers.get("Origin");
-  if (origin && origin !== url.origin)
+  const phoneAuth = path === "/api/login/browser/complete" && origin === PHONE_AUTH_ORIGIN;
+  if (origin && origin !== url.origin && !phoneAuth)
     throw new ApiError(403, "Use the console on the backend domain.");
+  if (phoneAuth && method === "OPTIONS") return new Response(null,{status:204,headers:browserCors(request)});
+  if (path === "/api/login/browser/start" && method === "POST")
+    return startBrowserLogin(request, env, await body(request));
+  if (path === "/api/login/browser/poll" && method === "POST")
+    return browserLoginStatus(env, await body(request));
+  if (path === "/api/login/browser/cancel" && method === "POST")
+    return browserLoginStatus(env, await body(request), true);
   const user = await verify(request, env);
   const profile = await env.DB.prepare(
     "SELECT disabled FROM profiles WHERE uid=?",
@@ -381,6 +404,8 @@ export async function route(
     .first<{ disabled: number }>();
   if (profile?.disabled && !isOwner(user, env))
     throw new ApiError(403, "Account paused.");
+  if (path === "/api/login/browser/complete" && method === "POST")
+    return completeBrowserLogin(env, user, await body(request));
   if (path === "/api/me" && method === "GET")
     return json({
       uid: user.uid,
@@ -402,7 +427,7 @@ export async function route(
       )
         throw new ApiError(
           400,
-          "Update URL must be an APK from the configured GitHub repository.",
+          "Update URL must be an APK from the trusted KITTY download site or configured GitHub repository.",
         );
       await env.DB.prepare(
         "INSERT INTO settings VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data",
@@ -416,16 +441,16 @@ export async function route(
       const rows = await env.DB.prepare(
         "SELECT id,kind,model,enabled FROM providers",
       ).all();
-      return json(rows.results.map((r) => ({ ...r, keyConfigured: true })));
+        return json(rows.results.map((r) => ({ ...r, keyConfigured: r.kind !== "cloudflare" })));
     }
     if (path === "/api/admin/providers" && method === "PUT") {
       const input = z
         .object({
           id: z.string().regex(/^[a-z0-9-]{1,40}$/),
-          kind: z.enum(["groq", "gemini"]),
+            kind: z.enum(["groq", "gemini", "cloudflare"]),
           model: z
             .string()
-            .regex(/^[a-zA-Z0-9._/-]+$/)
+              .regex(/^[a-zA-Z0-9@._/-]+$/)
             .max(120),
           enabled: z.boolean(),
           key: z.string().min(10).max(512).optional(),
@@ -435,11 +460,15 @@ export async function route(
       const old = await env.DB.prepare("SELECT * FROM providers WHERE id=?")
         .bind(input.id)
         .first<Provider>();
-      if (!input.key && !old)
+        if (input.kind === "groq" && !isGroqChatModel(input.model))
+          throw new ApiError(400, "This is a speech model. Select a text chat model such as openai/gpt-oss-120b.");
+        if (input.kind === "cloudflare" && (!env.AI || !CLOUDFLARE_MODELS.some(m => m === input.model)))
+          throw new ApiError(400, "Choose a supported free Cloudflare model and connect the AI binding.");
+        if (input.kind !== "cloudflare" && !input.key && (!old || old.kind !== input.kind))
         throw new ApiError(400, "A new provider needs an API key.");
-      if (old?.kind !== input.kind && !input.key)
+      if (input.kind !== "cloudflare" && old?.kind !== input.kind && !input.key)
         throw new ApiError(400, "Changing provider type requires a new key.");
-      const encrypted = input.key
+      const encrypted = input.kind === "cloudflare" ? "" : input.key
         ? await seal(input.key, env.VAULT_KEY, input.id)
         : old!.encrypted_key;
       await env.DB.prepare(
@@ -466,6 +495,7 @@ export async function route(
     }
     if (path === "/api/admin/models" && method === "GET") {
       const p = await provider(env, url.searchParams.get("provider") || "");
+      if (p.kind === "cloudflare") return json(CLOUDFLARE_MODELS);
       const key = await unseal(p.encrypted_key, env.VAULT_KEY, p.id);
       const response = await fetch(
         p.kind === "groq"
@@ -490,7 +520,7 @@ export async function route(
       };
       return json(
         p.kind === "groq"
-          ? (data.data || []).map((m) => m.id)
+          ? (data.data || []).map((m) => m.id).filter(isGroqChatModel)
           : (data.models || []).map((m) => m.name.replace("models/", "")),
       );
     }
@@ -765,13 +795,13 @@ export function trustedRelease(value: string, repo: string) {
     const url = new URL(value);
     return (
       url.protocol === "https:" &&
-      url.hostname === "github.com" &&
       !url.port &&
       !url.username &&
       !url.password &&
       !url.search &&
       !url.hash &&
-      new RegExp(`^/${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/releases/download/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\\.apk$`).test(url.pathname)
+      ((url.hostname === "kitty-ai-v2.kitty-ai.workers.dev" && /^\/downloads\/KITTY-AI-[0-9]+(?:\.[0-9]+){1,3}\.apk$/.test(url.pathname)) ||
+      (url.hostname === "github.com" && new RegExp(`^/${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/releases/download/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\\.apk$`).test(url.pathname)))
     );
   } catch {
     return false;
@@ -779,13 +809,14 @@ export function trustedRelease(value: string, repo: string) {
 }
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+    let response: Response;
     try {
-      return await route(request, env, ctx);
+      response = await route(request, env, ctx);
     } catch (error) {
       if (error instanceof ApiError)
-        return json({ error: error.message }, error.status);
-      if (error instanceof z.ZodError)
-        return json(
+        response = json({ error: error.message }, error.status);
+      else if (error instanceof z.ZodError)
+        response = json(
           {
             error: "Invalid input.",
             details: error.issues.map((i) => ({
@@ -795,7 +826,10 @@ export default {
           },
           400,
         );
-      return json({ error: "Something went wrong. Please try again." }, 500);
+      else response = json({ error: "Something went wrong. Please try again." }, 500);
     }
+    const headers = new Headers(response.headers);
+    for (const [key,value] of Object.entries(browserCors(request))) headers.set(key,value);
+    return new Response(response.body, {status:response.status,headers});
   },
 } satisfies ExportedHandler<Env>;

@@ -6,6 +6,21 @@ import org.junit.Test
 
 class TrustedUpdatesTest {
     @Test
+    fun acceptsOnlyThePinnedKittyDownloadHostAndPath() {
+        assertTrue(
+            TrustedUpdates.allowed(
+                "https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk"
+            )
+        )
+        listOf(
+                "https://evil.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk",
+                "https://kitty-ai-v2.kitty-ai.workers.dev/elsewhere/KITTY-AI-1.0.3.apk",
+                "https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk?other=1",
+            )
+            .forEach { assertFalse(TrustedUpdates.allowed(it)) }
+    }
+
+    @Test
     fun acceptsOwnerRelease() {
         assertTrue(
             TrustedUpdates.allowed(

@@ -115,8 +115,20 @@ async function load() {
         "The engine room.",
         "Add Groq for chat and Gemini for speech. Users never see a key.",
       ) +
-        `<div class="two-col"><article><h3>Configured providers</h3>${providers.map((p) => `<div class="provider"><div><strong>${escape(p.id)}</strong><p>${escape(p.kind)} / ${escape(p.model)}</p><small>Key configured · ${p.enabled ? "enabled" : "paused"}</small></div><button data-models="${escape(p.id)}">Models</button><button data-delete="${escape(p.id)}" class="danger">Remove</button></div>`).join("") || "<p>No providers yet.</p>"}<pre id="models"></pre></article><article><h3>Add or update a provider</h3><form id="provider-form">${field("ID (groq-main, groq-fast or gemini-speech)", "provider-id", "groq-main")}<label>Provider<select id="kind"><option value="groq">Groq</option><option value="gemini">Gemini</option></select></label>${field("Chat model", "model", "openai/gpt-oss-120b")}${field("API key · leave blank to preserve an existing key", "key", "", "password")}<label class="check"><input type="checkbox" id="provider-enabled" checked>Enabled</label><button class="primary" type="submit">Save provider</button></form></article></div><article><form id="routing">${field("Ordered chat provider IDs, separated by commas", "order", config.chatProviders.join(","))}${field("Speech provider ID", "speech-provider", config.speechProvider)}${field("Gemini TTS model", "speech-model", config.speechModel)}${field("Voice", "voice", config.speechVoice)}<p>Fallbacks apply before the first text arrives. A partial reply is never silently replaced.</p><button type="submit" class="primary">Save routing</button></form></article>`,
+        `<div class="two-col"><article><h3>Configured providers</h3>${providers.map((p) => `<div class="provider"><div><strong>${escape(p.id)}</strong><p>${escape(p.kind)} / ${escape(p.model)}</p><small>${p.kind === "cloudflare" ? "Free allowance · no key required" : "Key configured"} · ${p.enabled ? "enabled" : "paused"}</small></div><button data-models="${escape(p.id)}">Models</button><button data-delete="${escape(p.id)}" class="danger">Remove</button></div>`).join("") || "<p>No providers yet.</p>"}<pre id="models"></pre></article><article><h3>Add or update a provider</h3><form id="provider-form">${field("ID (groq-main, groq-fast or gemini-speech)", "provider-id", "groq-main")}<label>Provider<select id="kind"><option value="groq">Groq</option><option value="gemini">Gemini</option><option value="cloudflare">Cloudflare free AI (no key)</option></select></label>${field("Chat model", "model", "openai/gpt-oss-120b")}${field("API key · Cloudflare needs no key; leave blank to preserve an existing key", "key", "", "password")}<label class="check"><input type="checkbox" id="provider-enabled" checked>Enabled</label><button class="primary" type="submit">Save provider</button></form></article></div><article><form id="routing">${field("Ordered chat provider IDs, separated by commas", "order", config.chatProviders.join(","))}${field("Speech provider ID", "speech-provider", config.speechProvider)}${field("Gemini TTS model", "speech-model", config.speechModel)}${field("Voice", "voice", config.speechVoice)}<p>Fallbacks apply before the first text arrives. A partial reply is never silently replaced.</p><button type="submit" class="primary">Save routing</button></form></article>`,
     );
+    document.getElementById("kind")!.addEventListener("change", () => {
+      const free = value("kind") === "cloudflare";
+      (document.getElementById("key") as HTMLInputElement).disabled = free;
+      if (free) {
+        (document.getElementById("provider-id") as HTMLInputElement).value = "cloudflare-free";
+        (document.getElementById("model") as HTMLInputElement).value = "@cf/meta/llama-3.1-8b-instruct-fp8";
+        (document.getElementById("key") as HTMLInputElement).value = "";
+      } else {
+        (document.getElementById("provider-id") as HTMLInputElement).value = value("kind") === "groq" ? "groq-main" : "gemini-speech";
+        (document.getElementById("model") as HTMLInputElement).value = value("kind") === "groq" ? "openai/gpt-oss-120b" : config.speechModel;
+      }
+    });
     submit("provider-form", async () => {
       await api("admin/providers", "PUT", {
         id: value("provider-id"),
@@ -231,9 +243,9 @@ async function load() {
     shell(
       title(
         "The next chapter.",
-        "Publish owner-signed APKs through psychspy7/KITTY.AI-v2 GitHub Releases.",
+        "Publish owner-signed APKs through the KITTY download site or psychspy7/KITTY.AI-v2 GitHub Releases.",
       ) +
-        `<article><form id="release">${field("Version code (must increase)", "version-code", config.release.versionCode, "number")}${field("Version name", "version-name", config.release.versionName)}${field("Direct GitHub Release APK URL", "url", config.release.url)}${field("APK SHA-256 checksum", "sha256", config.release.sha256 || "")}<label>Release notes<textarea id="notes" rows="5">${escape(config.release.notes)}</textarea></label><button type="submit" class="primary">Publish update information</button></form><p>Android verifies signing continuity when a downloaded update is installed.</p></article>`,
+        `<article><form id="release">${field("Version code (must increase)", "version-code", config.release.versionCode, "number")}${field("Version name", "version-name", config.release.versionName)}${field("Direct KITTY site or GitHub Release APK URL", "url", config.release.url)}${field("APK SHA-256 checksum", "sha256", config.release.sha256 || "")}<label>Release notes<textarea id="notes" rows="5">${escape(config.release.notes)}</textarea></label><button type="submit" class="primary">Publish update information</button></form><p>Android verifies signing continuity when a downloaded update is installed.</p></article>`,
     );
     submit("release", async () => {
       config.release = {

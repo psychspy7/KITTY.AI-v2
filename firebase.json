@@ -1,4 +1,10 @@
 {
+  "hosting": {
+    "site": "kittyai-f743c",
+    "public": ".tooling/firebase-auth-hosting",
+    "ignore": ["firebase.json", "**/.*"],
+    "headers": [{"source":"**","headers":[{"key":"Cache-Control","value":"no-store"},{"key":"Referrer-Policy","value":"no-referrer"},{"key":"X-Content-Type-Options","value":"nosniff"}]}]
+  },
   "auth": {
     "providers": {"googleSignIn": {"oAuthBrandDisplayName": "KITTY AI", "supportEmail": "viratanand1221@gmail.com"}}
   }

@@ -23,6 +23,7 @@ object UpdateRules {
                     "release-assets.githubusercontent.com",
                     "objects.githubusercontent.com",
                     "github-releases.githubusercontent.com",
+                    "kitty-ai-v2.kitty-ai.workers.dev",
                 )
     }
         .getOrDefault(false)

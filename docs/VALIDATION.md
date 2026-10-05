@@ -1,55 +1,46 @@
 # KITTY AI validation report
 
-Validation date: **5 October 2026**.
+Validation date: **5 October 2026**. Release **1.0.3 / versionCode 4**.
 
-## Delivered and deployed
+## Findings and changes
 
-The complete Android app, backend, separate owner console, D1 schema, original icon and beginner guides are implemented. **KITTY AI 1.0.1 (versionCode 2)** is a minified owner-signed release connected to https://kitty-ai-v2.kitty-ai.workers.dev. It is installable and available from that site's downloads directory.
+The previous login handler could silently swallow a Credential Manager cancellation, leaving the same login page. The new handler displays persistent errors and Firebase error codes, and waits until the activity resumes before exchanging native Google credentials. Login attempts are serialized; the initial null Firebase listener no longer resets an active attempt.
 
-Cloudflare Workers and D1 are deployed in the owner's account. Migration 0001, VAULT_KEY and FIREBASE_WEB_API_KEY are configured. The Firebase CLI is signed in as the exact owner email. Google sign-in deployment succeeded, both permanent release fingerprints were registered and verified, and the Worker domain was added while preserving prior authorized domains. Refreshed Android configuration was fetched; its compiled authentication resource values are unchanged from the APK. A public Firebase configuration request returns HTTP 200 and confirms the Worker domain.
+A secure browser option uses the existing Firebase project's first-party Hosting domain. Its single-use handoff expires after ten minutes, encrypts the Google credential in D1, requires an app-private PKCE proof, and checks the resulting Firebase UID. Polling pauses behind the browser and resumes when KITTY returns. Tokens are never in the return link. The emulator exposed background DNS failures; the observed foreground resume did not repeat that error. The original phone's exception was not captured, so these findings do not establish its exact cause.
 
-The owner completed Google sign-in to the KITTY console. Its exact Firebase UID was verified through Google's authenticated account lookup and configured as OWNER_UID in Cloudflare Secrets. Provider-key setup is deferred at the owner's explicit request; live chat remains paused. Phone Google login and live Groq/Gemini calls are **not claimed**.
+The live groq-main provider was configured with **canopylabs/orpheus-v1-english**, a speech model. It now uses **openai/gpt-oss-120b**, preserving the encrypted key. Live model lookup and a synthetic streamed answer returned HTTP 200 and [DONE]. The free Cloudflare fallback also returned a finished live synthetic stream. These are provider tests, not a complete authenticated Android chat test.
 
 ## Verified checks
 
-| Check | Evidence |
+| Check | Result |
 |---|---|
-| Firebase configuration | Project, number, app ID, package and Web OAuth client match; refreshed JSON contains registered Android OAuth clients. |
-| TypeScript | Backend and admin checks pass. |
-| Backend tests | **19 pass** with real local Miniflare D1; identities/provider responses are simulated, signed JWT cases use generated RSA keys. |
-| Backend deployment | Remote D1 migrations and Worker/static assets deployment succeed. |
-| Live public/access smoke checks | Health and console HTTP 200; unauthenticated sync/admin HTTP 401; invalid bearer token HTTP 401; cross-origin API HTTP 403. These do not establish authenticated user/admin flows. |
-| Android release | assembleRelease, testReleaseUnitTest and lintRelease succeed with Java 17, Gradle 8.13, AGP 8.13.2 and Kotlin 2.3.20. Minimum API 26, target/compile 35. |
-| Android unit tests | **10 pass**, 0 skipped/failures/errors: history merge, trusted update URLs, known SHA-256 vector, update metadata, redirect hosts, package/version/signing-certificate rules and ambiguous URL rejection. |
-| Android lint | **0 errors, 21 warnings**: SDK/dependency currency, resource configuration and KTX style suggestions. Not suppressed. |
-| Signature | Packaged APK passes apksigner verification with a 3072-bit RSA owner certificate. Public fingerprints in OWNER-SIGNING.txt. |
-| APK identity | com.kitty.ai, versionCode 2, versionName 1.0.1. APK is 3,526,075 bytes. |
-| Public APK download | HTTP 200, APK MIME type, byte-for-byte equality with local signed build. SHA-256: 02ba4add9862ef92f04293ea9e4811344f08958c146b115fe3af0ecae231e937. |
-| Packaged permissions | INTERNET, REQUEST_INSTALL_PACKAGES for explicit updates, ACCESS_NETWORK_STATE, Google READ_GSERVICES and app-specific receiver permission. No microphone, contacts, SMS, phone, accessibility or broad storage permission. |
-| Emulator | Owner release installed and cold-launched on KittyQA, Android 15/API 35. Actual login screen captured at 320×640 in evidence/release-login.png and XML. No KITTY crash recorded. |
+| Firebase | Project/app/package/Web OAuth client match; Google provider enabled, release/debug certificates registered, both deployed origins accepted by a public configuration request (HTTP 200). |
+| Owner | Exact Google-linked UID WCppLHxijDcNqVTxAQkONUrApFm1 and exact verified owner email required by the backend; OWNER_UID remains a secret. |
+| TypeScript | Backend/admin checks pass. |
+| Backend tests | **33 pass** using real local Miniflare D1. Identities/provider responses simulated; JWT cases use generated RSA signatures. |
+| Deployment | Worker, D1 migrations 0001/0002, AI binding, console, APK and static Firebase login Hosting deployed. |
+| Providers | Saved Groq key: models and finished synthetic stream pass. Cloudflare: finished synthetic stream passes. No credential printed. |
+| Android build | assembleRelease, testReleaseUnitTest, lintRelease pass. Java 17, Gradle 8.13, AGP 8.13.2, Kotlin 2.3.20; min API 26, target/compile 35. |
+| Android tests | **13 pass**, zero failures/errors/skips: history merge, PKCE RFC vector/proof generation, SHA-256, trusted URLs, update metadata and package/version/certificate rules. |
+| Lint | **0 errors, 24 warnings**, retained: dependency/SDK currency, style and resource suggestions. |
+| Signature | apksigner verifies preserved RSA 3072-bit owner key. SHA-256 certificate: 047129a730f0686d4f83f1d89d690811f5d7f91e09cd283cb9fdfff0a14661d1. |
+| APK | com.kitty.ai, code 4, name 1.0.3; **3,542,551 bytes**. |
+| Download | HTTP 200, APK MIME, byte-for-byte equality with local signed APK. SHA-256: f7873810db3140734e8e92b87e2e8ae0b72945a71eb21cd30baeb36a174864fb. |
+| Permissions | INTERNET, explicit-update REQUEST_INSTALL_PACKAGES, ACCESS_NETWORK_STATE, Google READ_GSERVICES and app-specific receiver permission. No microphone, contacts, SMS, phone, accessibility or broad storage permission. |
+| Emulator | Release 1.0.3 installed/cold-launched on Android 15/API 35. Login and persistent Google cancellation captured in evidence/release-1.0.3-*.png/xml; no KITTY crash recorded. Browser handoff resumes after foreground return and process restart, then explicit cancellation restores the login buttons. |
 
-The emulator's initial boot temporarily lacked its settings provider and displayed a **System UI** ANR. After boot completed and the observed Wait button was selected, installation succeeded and KITTY's screen rendered. That OS incident and the slow host mean this is launch/installation evidence, not a phone performance benchmark. One release attempt failed on Windows Gradle-cache permissions; the corrected build passed. No such failed attempt is counted as a pass.
+## Scope and remaining acceptance
 
-## Test scope
+Backend tests cover exact owner identity, unset UID, Google/verified email requirements, token audience/issuer/expiry, encrypted/masked keys, user separation, UTF-8 streaming, idempotency, conflicting requests, quotas, cancellation, fallback before visible text, partial replies, consent withdrawal and selected examples. New cases cover PKCE, browser expiry/cancel/replay, simultaneous one-time consumption, anonymous limits, Google JWT verification, narrow Firebase CORS, redirects, Cloudflare context/cancellation and rejection of speech models for Groq chat.
 
-Backend tests cover exact owner UID plus exact verified email, failed-closed unset UID, non-Google/unverified rejection, audience/issuer/expiry validation, AES-GCM provider key isolation and masked responses, per-user data isolation, UTF-8 streaming, idempotent replay, conflicting request rejection, quotas, cancellation finalization, fallback before visible text, partial reply retention, consent withdrawal and individual example selection. Update publication requires a valid checksum and the configured repository URL. Gemini speech contract tests exercise the documented Interactions WAV request/response with store:false; they simulate responses. Official Groq model and Gemini TTS documentation was checked again on the validation date.
+**Successful real Google login and chat on Android remain unverified.** The test browser returned Firebase auth/network-request-failed before opening Google; separate HTTPS configuration checks accepted both deployed origins. Page appearance/native dismissal are not counted as successful authentication. The owner previously signed into the web console and configured Groq; phone acceptance was requested separately.
 
-An attempted CLI Google OAuth credential exchange for an independent live owner-token check returned HTTP 400; it is not counted as an authenticated backend pass. The owner's browser sign-in and Google-linked UID lookup were successful. No token was printed or saved by that check.
+Gemini speech tests simulate the documented API; no live Gemini key/audio test was completed. Direct Cloudflare inference plus adapter tests do not establish a production Groq-failure-to-Cloudflare transition. Real two-account switching during streaming, speech replacement/background behavior, notices and consent review still need device acceptance.
 
-The in-app updater is compiled into the release, uses private files, bounded downloads, explicit cancellation and persistence, and verifies downloaded identity and SHA-256 before opening Android's installer. The security decision rules are unit tested. A complete real GitHub download → permission prompt → installation flow has **not yet been tested**; it requires a newer release signed by this same key and a signed-in user. No silent update claim is made.
+The updater verifies SHA-256, package, increasing version and exact certificate, with bounded private downloads and cancellation. Trusted sources are the pinned KITTY APK path and owner's GitHub Releases. Release 1.0.3 metadata is published. A complete signed-in download → Android permission prompt → installation flow remains unverified. Android confirms installation; no silent update is claimed.
 
-## Remaining live acceptance checks
+The slow Windows-hosted emulator is not a phone performance benchmark. Initial OS startup problems and an earlier cache-permission build failure are not counted as passed app checks.
 
-1. Owner UID activation is complete. Refresh the console to confirm owner access. Verify an ordinary Google user receives HTTP 403 on owner routes.
-2. Configure Groq and optional Gemini keys in the console, inspect account-supported models, then enable the service and test real streaming/audio calls. Keys must stay in the console/local prompts, never chat or APK resources.
-3. On a Google Play services phone, test two accounts: separate history/memory, switching during streaming, cancellation/retry, quotas and service pause. The account fences and playback guards compile; these real flows are not established by launch tests.
-4. Test speech play/stop/replacement/background behavior, notices/read state, individual consented examples and withdrawal.
-5. Publish a higher-version APK in the new repository's GitHub Releases with its checksum, and test the complete in-app update flow.
+Announcements are in-app Inbox messages, not background push. Saved conversations/selected consented examples do not fine-tune a model. Backend authorization protects prompt editing; model obedience is not a security boundary.
 
-Announcements are in-app Inbox messages; no background push is provided. Conversations are saved separately from model fine-tuning. No training job, background microphone or phone-control capability is included.
-
-## Signing and security
-
-No old owner key existed in the inspected project. A permanent release key was created and preserved under .tooling/signing, with a Windows DPAPI password and a private recovery password for other Windows accounts/computers. Key/password files are excluded from Git and source ZIPs. Back them up privately. This owner release cannot update the old debug-signed setup APK; uninstall the debug build once. Subsequent owner releases must keep this signing key.
-
-Prompt control is protected by backend authorization; model obedience is not a security boundary. Prompt injection resistance and flawless responses are not guaranteed. This report does not claim full production readiness while the remaining account/provider/device checks are pending.
+The existing permanent owner key is preserved in .tooling/signing/kitty-owner.jks. Its DPAPI password/private recovery file are excluded from Git/source archives. Back them up privately. Update over previous owner releases to preserve local data. A debug-signed APK requires a separate migration because Android rejects a different certificate; do not uninstall an owner release unnecessarily.

@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.kitty.ai.audio.SpeechPlayer
+import com.kitty.ai.auth.BrowserLogin
 import com.kitty.ai.auth.GoogleLogin
 import com.kitty.ai.data.*
 import java.util.UUID
@@ -27,6 +28,8 @@ data class KittyState(
     val syncing: Boolean = false,
     val speaking: String? = null,
     val signingIn: Boolean = false,
+    val browserSigningIn: Boolean = false,
+    val signInError: String? = null,
     val error: String? = null,
     val update: UpdateInfo? = null,
     val showConsent: Boolean = false,
@@ -35,6 +38,7 @@ data class KittyState(
 class KittyViewModel(application: Application) : AndroidViewModel(application) {
     private val auth = FirebaseAuth.getInstance()
     private val login = GoogleLogin(auth)
+    private val browserLogin = BrowserLogin(application, auth)
     private val api = ApiClient(auth)
     private val store = LocalStore(application)
     private val player = SpeechPlayer(application)
@@ -46,6 +50,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
 
     private var epoch = 0
     private var session: Job? = null
+    private var loginJob: Job? = null
     private var reply: Job? = null
     private var speech: Job? = null
     private var speechGeneration = 0
@@ -54,9 +59,13 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         auth.addAuthStateListener(listener)
+        if (auth.currentUser == null && browserLogin.hasPending())
+            mutable.update { it.copy(signingIn = true, browserSigningIn = true) }
     }
 
     private fun switchAccount() {
+        val account = auth.currentUser
+        if (account?.uid == mutable.value.uid) return
         epoch++
         val generation = epoch
         session?.cancel()
@@ -64,7 +73,6 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         speech?.cancel()
         api.cancelAll()
         player.stop()
-        val account = auth.currentUser
         mutable.value =
             KittyState(
                 uid = account?.uid,
@@ -91,24 +99,83 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun signIn(activity: Activity, clientId: String) {
-        if (mutable.value.signingIn) return
-        mutable.update { it.copy(signingIn = true, error = null) }
-        viewModelScope.launch {
+    private var loginAttempt = 0
+    private var foreground = false
+
+    fun setForeground(active: Boolean) {
+        foreground = active
+        if (active) resumeBrowserSignIn()
+        else if (mutable.value.browserSigningIn) {
+            // Browsers own the foreground during Google login. Cached apps can lose network access.
+            loginAttempt++
+            loginJob?.cancel()
+            loginJob = null
+        }
+    }
+
+    private fun launchLogin(browser: Boolean, operation: suspend () -> Unit) {
+        if (loginJob?.isActive == true) return
+        val attempt = ++loginAttempt
+        mutable.update { it.copy(signingIn = true, browserSigningIn = browser, signInError = null) }
+        loginJob = viewModelScope.launch {
             try {
-                login.signIn(activity, clientId)
+                operation()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                mutable.update {
-                    it.copy(
-                        error =
-                            "Google sign-in failed. Check the app SHA fingerprints and Google provider setup. ${e.localizedMessage}"
-                    )
-                }
+                // Log exception types only; Google credentials and tokens never enter logs.
+                android.util.Log.w(
+                    "KittyLogin",
+                    "Sign-in failed: ${e.javaClass.name}; cause: ${e.cause?.javaClass?.name ?: "none"}",
+                )
+                if (loginAttempt == attempt) mutable.update { it.copy(signInError = loginError(e)) }
             } finally {
-                mutable.update { it.copy(signingIn = false) }
+                if (loginAttempt == attempt) {
+                    val pending = browser && browserLogin.hasPending() && mutable.value.uid == null
+                    mutable.update { it.copy(signingIn = pending, browserSigningIn = pending) }
+                }
             }
+        }
+    }
+
+    private fun loginError(error: Exception): String {
+        val code = (error as? com.google.firebase.auth.FirebaseAuthException)?.errorCode
+        return if (code != null)
+            "Google sign-in could not finish ($code). Try browser sign-in below."
+        else if (error is IllegalStateException)
+            error.message ?: "Sign-in could not finish. Try browser sign-in."
+        else
+            "Google sign-in could not finish (${error.javaClass.simpleName}). Check your connection and try again."
+    }
+
+    fun signIn(activity: Activity, clientId: String) =
+        launchLogin(false) {
+            browserLogin.cancel()
+            login.signIn(activity, clientId)
+        }
+
+    fun browserSignIn(activity: Activity) =
+        launchLogin(true) {
+            browserLogin.cancel()
+            browserLogin.open(activity)
+        }
+
+    fun resumeBrowserSignIn() {
+        if (!foreground || auth.currentUser != null || !browserLogin.hasPending()) return
+        launchLogin(true) { browserLogin.finish() }
+    }
+
+    fun cancelBrowserSignIn() {
+        loginAttempt++
+        loginJob?.cancel()
+        loginJob = null
+        viewModelScope.launch { browserLogin.cancel() }
+        mutable.update {
+            it.copy(
+                signingIn = false,
+                browserSigningIn = false,
+                signInError = "Browser sign-in cancelled. You can try again.",
+            )
         }
     }
 
@@ -520,6 +587,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        loginJob?.cancel()
         updater.cancel()
         auth.removeAuthStateListener(listener)
         session?.cancel()

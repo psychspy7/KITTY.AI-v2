@@ -16,6 +16,8 @@ const excluded = new Set([
   ".wrangler",
   ".git",
   ".tooling",
+  ".kotlin",
+  ".firebase",
 ]);
 const privateNames = new Set([
   "local.properties",

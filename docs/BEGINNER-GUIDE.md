@@ -1,8 +1,19 @@
-# KITTY AI: beginner setup and release guide
+# KITTY AI beginner guide
+
+## Login repair in 1.0.3
+
+Install the signed 1.0.3 APK over the previous owner-signed release. Keep the existing app installed so your local history is preserved. On the login page choose **Sign in using browser**, complete Google sign-in, then tap **Return to KITTY**. The browser uses your existing Firebase domain. KITTY resumes the secure handoff when it returns to the foreground; there is no background service. The native Google button remains available, and errors now stay visible.
+
+Groq is configured on the live deployment with **openai/gpt-oss-120b**. The saved key was tested with a real streamed reply. **cloudflare-free** is the enabled fallback using Cloudflare Workers AI’s free allowance; its live synthetic stream also passed. Users need no keys. The owner can pause the service, change routing, keys, personality and limits in the existing web console. Gemini speech still requires a Gemini key. A Groq speech model such as Orpheus cannot be used in the chat-model field.
+
+Future APK updates can be published on the pinned KITTY site or the owner’s GitHub repository. The app checks SHA-256, package name, increasing version code and the signing certificate before opening Android’s installer. Android asks the user to confirm installation.
+
+To redeploy browser sign-in after changing its source: run `npm run build -w admin`, `node scripts/prepare-auth-hosting.mjs`, then `firebase deploy --only hosting --project kittyai-f743c`. This deploys a static login page to Firebase Hosting, within its free allowance; no Cloud Functions billing dependency was added.
+
 
 KITTY is created by **Virat with the help of Kitty Corp**. This guide connects the source to your own accounts. You own the source, Firebase project, Cloudflare database and APK signing key.
 
-**Already deployed:** [KITTY owner console](https://kitty-ai-v2.kitty-ai.workers.dev) and [signed KITTY 1.0.1 APK](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.1.apk). Google sign-in, the authorized domain, D1, release fingerprints and exact owner UID are configured. Provider setup is deferred at the owner's request. The infrastructure steps below document setup from scratch; do not recreate the existing database or replace the preserved signing/vault keys.
+**Already deployed:** [KITTY owner console](https://kitty-ai-v2.kitty-ai.workers.dev) and [signed KITTY 1.0.3 APK](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk). Google sign-in configuration, domains, D1, release fingerprints and exact owner UID are configured. Groq and the free Cloudflare fallback are enabled and have passed live provider streaming tests. Phone Google login still needs acceptance; see the validation report. The infrastructure steps below document setup from scratch; do not recreate the existing database or replace the preserved signing/vault keys.
 
 ## 1. What runs where
 
@@ -13,7 +24,7 @@ KITTY is created by **Virat with the help of Kitty Corp**. This guide connects t
 | Cloudflare Worker | Secure API, streamed provider calls, owner authorization and encrypted key vault | Your Cloudflare account |
 | Cloudflare D1 | Each user’s history, memories, limits and consent | Your Cloudflare account |
 | Owner console | Provider setup, personality, limits, notices and updates | Same Worker URL |
-| GitHub Releases | Trusted download source for future APK updates | `psychspy7/KITTY.AI-v2` |
+| KITTY download site / GitHub Releases | Trusted APK downloads | Existing Worker / `psychspy7/KITTY.AI-v2` |
 
 Firebase Authentication is the only Firebase service used. No Firestore or Firebase Cloud Functions deployment is needed. Firebase Cloud Functions requires the Blaze billing plan; this project avoids that dependency. Standard Google authentication and Cloudflare Workers/D1 can be used within free allowances. Cloudflare’s free Workers allowance is 100,000 requests/day with a CPU limit; D1 has daily database limits and a storage cap. Exceeding a free allowance can stop service. Do not enable a paid plan unless you choose to pay. See [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/) and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/).
 
@@ -133,7 +144,7 @@ In **Providers**, add:
 
 Use **Models** to request the provider’s current model list. Availability is account-specific. Current defaults were checked against official docs; older Llama free-tier defaults are no longer used. See [Groq supported models](https://console.groq.com/docs/models), [deprecations](https://console.groq.com/docs/deprecations), and [Gemini speech](https://ai.google.dev/gemini-api/docs/speech-generation).
 
-Chat routing should be `groq-main,groq-fast` if both exist. Speech routing should be `gemini-speech`, model `gemini-3.8-flash-lite-tts`, voice `Kore`. These Gemini 3.8 speech models use the Interactions REST API and return WAV audio. Keep the service paused until your first real provider request succeeds.
+Current routing is `groq-main,cloudflare-free`. The free fallback uses Cloudflare provider/model `@cf/meta/llama-3.1-8b-instruct-fp8` and the deployed AI binding, without a key. Its allowance is shared by users and stops when exhausted. Alternatively use `groq-main,groq-fast` if both exist. Speech routing should be `gemini-speech`, model `gemini-3.8-flash-lite-tts`, voice `Kore`; it uses the Interactions REST API and returns WAV audio. Keep a new deployment paused until its first real request succeeds; this deployment is already enabled.
 
 The console never reveals saved key values. To rotate a key, submit a replacement; to preserve one, leave its input empty. Removing a provider deletes its encrypted key record. The vault encryption key stays in Cloudflare Secrets.
 
@@ -176,11 +187,11 @@ Release builds fail if a real backend URL or owner signing configuration is miss
 
 1. Keep the same package name, Firebase project and signing key. Increase versionCode for every published build.
 2. Build and test the APK with your owner key. Run `npm run check`, `npm test`, `npm run build`, and the Android build checks.
-3. Build the next release with versionCode **3 or higher**, for example `./scripts/build-android.ps1 -Release -BackendUrl 'https://kitty-ai-v2.kitty-ai.workers.dev' -VersionCode 3 -VersionName '1.0.2'`.
-4. Create a GitHub Release in `psychspy7/KITTY.AI-v2`, tag it (for example `v1.0.2`), and attach the signed APK. Copy its direct download link, such as `https://github.com/psychspy7/KITTY.AI-v2/releases/download/v1.0.2/KITTY-AI-1.0.2.apk`.
-5. Run `Get-FileHash artifacts/KITTY-AI-1.0.2.apk -Algorithm SHA256`. In the owner console’s **Updates** page, enter versionCode, versionName, the direct URL, the 64-character SHA-256 checksum and release notes. Publish a notice in **Announcements** if useful.
+3. Build the next release with versionCode **5 or higher**, for example `./scripts/build-android.ps1 -Release -BackendUrl 'https://kitty-ai-v2.kitty-ai.workers.dev' -VersionCode 5 -VersionName '1.0.4'`.
+4. Copy it to `admin/public/downloads/KITTY-AI-1.0.4.apk`, run `npm run build -w admin`, then `npx wrangler deploy --config backend/wrangler.toml`. Its direct URL is `https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.4.apk`. Alternatively create GitHub Release `v1.0.4` in `psychspy7/KITTY.AI-v2`, attach the APK and use its direct release download URL.
+5. Run `Get-FileHash artifacts/KITTY-AI-1.0.4.apk -Algorithm SHA256`. In the console's **Updates** page enter versionCode, versionName, direct URL, SHA-256 and notes. Publish an announcement if useful.
 
-Users choose **Settings → Check for updates → Download update**. KITTY downloads into private app storage, shows progress, supports cancellation/retry, accepts only this repository's GitHub release URLs and trusted GitHub asset redirects, and checks the APK's SHA-256, package, increasing versionCode and exact signing certificate. A verified download survives app restart. Tap **Install**. On the first update Android may ask to allow installations from KITTY; return and tap Install again. Android always asks for installation confirmation. `REQUEST_INSTALL_PACKAGES` exists solely for this explicit updater; there is no storage permission or silent installation. See [Android installation permission](https://developer.android.com/reference/android/content/pm/PackageManager#canRequestPackageInstalls()) and [FileProvider](https://developer.android.com/reference/androidx/core/content/FileProvider).
+Users choose **Settings → Check for updates → Download update**. KITTY downloads into private app storage, shows progress, supports cancellation/retry, accepts only the pinned KITTY APK path or this repository's GitHub release URLs and trusted asset redirects, and checks SHA-256, package, increasing versionCode and exact signing certificate. A verified download survives restart. Tap **Install**. Android may first ask to allow installations from KITTY; return and tap Install again. Android always confirms installation. `REQUEST_INSTALL_PACKAGES` exists solely for this explicit updater; no storage permission or silent installation is used. See [Android installation permission](https://developer.android.com/reference/android/content/pm/PackageManager#canRequestPackageInstalls()) and [FileProvider](https://developer.android.com/reference/androidx/core/content/FileProvider).
 
 Announcements are **in-app Inbox messages**. They are fetched during account sync, not delivered as background push notifications. No FCM notification permission is included in this release.
 

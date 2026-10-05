@@ -1,5 +1,27 @@
 import { ApiError, type Message, type Provider, type Env } from "./types";
 import { unseal } from "./vault";
+export const CLOUDFLARE_MODELS = ["@cf/meta/llama-3.1-8b-instruct-fp8"] as const;
+export function isGroqChatModel(id: string) {
+  return !/whisper|orpheus|playai|tts|speech|embed/i.test(id);
+}
+export function cloudflareContext(messages: Message[]): Message[] {
+  const encoder = new TextEncoder();
+  const systems = messages.filter(m => m.role === "system");
+  let bytes = systems.reduce((n, m) => n + encoder.encode(m.content).length, 0);
+  const recent: Message[] = [];
+  const conversation = messages.filter(m => m.role !== "system");
+  for (let i = conversation.length - 1; i >= 0; i--) {
+    const size = encoder.encode(conversation[i].content).length;
+    if (bytes + size > 24000) {
+      if (!recent.length) throw new ApiError(400, "This prompt is too long for the free model. Shorten it or ask the owner to select Groq.");
+      break;
+    }
+    bytes += size;
+    recent.unshift(conversation[i]);
+  }
+  while (recent[0]?.role === "assistant") recent.shift();
+  return [...systems, ...recent];
+}
 export async function* sseData(
   stream: ReadableStream<Uint8Array>,
 ): AsyncGenerator<string> {
@@ -35,9 +57,22 @@ export async function* chat(
   maxTokens: number,
   signal: AbortSignal,
 ): AsyncGenerator<string> {
-  const key = await unseal(provider.encrypted_key, env.VAULT_KEY, provider.id);
   let response: Response;
-  if (provider.kind === "groq") {
+  if (provider.kind === "cloudflare") {
+    if (!env.AI) throw new ApiError(503, "Cloudflare AI is not connected.");
+    const model = CLOUDFLARE_MODELS.find(m => m === provider.model);
+    if (!model) throw new ApiError(400, "Choose a supported free Cloudflare chat model.");
+    signal.throwIfAborted();
+    const context = cloudflareContext(messages);
+    try {
+      response = new Response(await env.AI.run(model, {messages:context, stream: true, max_tokens: maxTokens}, {signal}));
+    } catch {
+      signal.throwIfAborted();
+      throw new ApiError(503, "KITTY’s free AI allowance is unavailable or exhausted. Try again later, or ask the owner to configure Groq.");
+    }
+  } else if (provider.kind === "groq") {
+    if (!isGroqChatModel(provider.model)) throw new ApiError(400, "Groq chat requires a text chat model, such as openai/gpt-oss-120b.");
+    const key = await unseal(provider.encrypted_key, env.VAULT_KEY, provider.id);
     response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -57,6 +92,7 @@ export async function* chat(
       signal,
     });
   } else {
+    const key = await unseal(provider.encrypted_key, env.VAULT_KEY, provider.id);
     const system = messages
       .filter((m) => m.role === "system")
       .map((m) => m.content)
@@ -92,7 +128,9 @@ export async function* chat(
     }
     const event = JSON.parse(data);
     if (event.error) throw new ApiError(502, "Provider interrupted the reply.");
-    if (provider.kind === "groq") {
+    if (provider.kind === "cloudflare") {
+      if (event.response) yield event.response;
+    } else if (provider.kind === "groq") {
       const choice = event.choices?.[0];
       const value = choice?.delta?.content;
       if (value) yield value;

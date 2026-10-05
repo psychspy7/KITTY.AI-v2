@@ -7,6 +7,8 @@ export interface Env {
   VAULT_KEY?: string;
   FIREBASE_WEB_API_KEY?: string;
   RELEASE_REPOSITORY: string;
+  GOOGLE_WEB_CLIENT_ID?: string;
+  AI?: Ai;
 }
 export interface Identity {
   uid: string;
@@ -15,7 +17,7 @@ export interface Identity {
 }
 export interface Provider {
   id: string;
-  kind: "groq" | "gemini";
+  kind: "groq" | "gemini" | "cloudflare";
   model: string;
   enabled: number;
   encrypted_key: string;

@@ -59,10 +59,18 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
     val lifecycle = LocalLifecycleOwner.current
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) vm.stopSpeech()
+            if (event == Lifecycle.Event.ON_STOP) {
+                vm.stopSpeech()
+                vm.setForeground(false)
+            }
+            if (event == Lifecycle.Event.ON_START) vm.setForeground(true)
         }
         lifecycle.lifecycle.addObserver(observer)
-        onDispose { lifecycle.lifecycle.removeObserver(observer) }
+        vm.setForeground(lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
+        onDispose {
+            lifecycle.lifecycle.removeObserver(observer)
+            vm.setForeground(false)
+        }
     }
     MaterialTheme(colorScheme = KittyColors, typography = Typography()) {
         val snackbar = remember { SnackbarHostState() }
@@ -302,6 +310,38 @@ private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activit
                 Text("G", fontWeight = FontWeight.Bold, color = Color(0xFF4285F4), fontSize = 20.sp)
                 Spacer(Modifier.width(14.dp))
                 Text("Sign in with Google", fontWeight = FontWeight.Medium)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { vm.browserSignIn(activity) },
+            enabled = !state.signingIn,
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+        ) {
+            Text("Sign in using browser")
+        }
+        if (state.browserSigningIn) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Finish Google sign-in in your browser, then return to KITTY.",
+                color = Lilac,
+                fontSize = 13.sp,
+            )
+            TextButton(onClick = vm::cancelBrowserSignIn) { Text("Cancel sign-in") }
+        }
+        state.signInError?.let { message ->
+            Spacer(Modifier.height(16.dp))
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                Text(
+                    message,
+                    Modifier.padding(16.dp),
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    fontSize = 13.sp,
+                )
             }
         }
         Spacer(Modifier.height(20.dp))

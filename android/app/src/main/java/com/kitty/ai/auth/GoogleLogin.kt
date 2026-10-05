@@ -4,15 +4,17 @@ import android.app.Activity
 import android.util.Base64
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.NoCredentialException
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.withResumed
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.GoogleAuthProvider
 import java.security.SecureRandom
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 
 class GoogleLogin(private val auth: FirebaseAuth) {
@@ -36,12 +38,22 @@ class GoogleLogin(private val auth: FirebaseAuth) {
                     error,
                 )
             } catch (error: GetCredentialCancellationException) {
-                throw CancellationException("Sign-in dismissed.", error)
+                throw IllegalStateException(
+                    "Google did not complete sign-in. Try again, or use browser sign-in below.",
+                    error,
+                )
             }
+        check(result.credential is CustomCredential) {
+            "Google returned an unsupported credential. Use browser sign-in."
+        }
         val credential = GoogleIdTokenCredential.createFrom(result.credential.data)
-        auth
-            .signInWithCredential(GoogleAuthProvider.getCredential(credential.idToken, null))
-            .await()
+        (activity as? LifecycleOwner)?.lifecycle?.withResumed { Unit }
+        val user =
+            auth
+                .signInWithCredential(GoogleAuthProvider.getCredential(credential.idToken, null))
+                .await()
+                .user
+        check(user != null) { "Google sign-in did not create a session. Please try again." }
     }
 
     suspend fun signOut(activity: Activity) {

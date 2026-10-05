@@ -1,10 +1,10 @@
 # Delivered artifacts
 
-- `artifacts/KITTY-AI-1.0.1.apk`: permanent owner-signed release for Android 8.0+, connected to the deployed HTTPS backend, with the in-app downloader/installer handoff. [Phone download](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.1.apk).
-- `artifacts/KITTY-AI-source.zip`: complete source archive, including validated public Android Firebase configuration and original icon master. Provider secrets, CLI sessions, caches and private signing keys are excluded.
+- artifacts/KITTY-AI-1.0.3.apk: preserved owner-signed Android 8.0+ release, connected to the deployed backend, with persistent login errors, browser Google sign-in and verified update downloads. [Phone download](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk).
+- artifacts/KITTY-AI-source.zip: complete source including validated public Android Firebase configuration and original icon master. Provider secrets, CLI sessions, caches and private signing keys excluded.
 
-APK bytes: 3526075
+APK bytes: **3542551**
 
-APK SHA-256: `02ba4add9862ef92f04293ea9e4811344f08958c146b115fe3af0ecae231e937`
+APK SHA-256: f7873810db3140734e8e92b87e2e8ae0b72945a71eb21cd30baeb36a174864fb
 
-See [validation](VALIDATION.md), [setup and release instructions](BEGINNER-GUIDE.md), [deployment status](DEPLOYMENT.md), and [owner signing fingerprints](OWNER-SIGNING.txt). The older setup debug APK is retained locally as a historical artifact and uses another signing certificate. Owner activation and provider setup status are documented separately from the APK's successful build/install checks.
+See [validation](VALIDATION.md), [beginner guide](BEGINNER-GUIDE.md), [deployment](DEPLOYMENT.md), and [public certificate fingerprints](OWNER-SIGNING.txt). Older APKs are historical artifacts. Android Google login and the complete updater installation are not claimed passed while phone acceptance is pending.
