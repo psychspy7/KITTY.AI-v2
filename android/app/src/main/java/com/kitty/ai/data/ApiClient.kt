@@ -111,33 +111,31 @@ class ApiClient(private val auth: FirebaseAuth) {
                         if (!response.isSuccessful)
                             error(errorMessage(response.body?.string().orEmpty(), response.code))
                         val source = response.body?.source() ?: error("Empty reply.")
-                        var event = "delta"
+                        val events = ReplyEvents()
                         var done = false
-                        while (!source.exhausted()) {
+                        while (!done && !source.exhausted()) {
                             currentCoroutineContext().ensureActive()
                             val line = source.readUtf8Line() ?: break
-                            if (line.startsWith("event: ")) event = line.removePrefix("event: ")
-                            if (line.startsWith("data: ")) {
-                                val payload =
-                                    json.parseToJsonElement(line.removePrefix("data: ")).jsonObject
-                                when (event) {
-                                    "delta" -> {
-                                        pending.append(
-                                            payload["text"]?.jsonPrimitive?.content.orEmpty()
-                                        )
-                                        if (System.nanoTime() - last > 50_000_000) {
-                                            onDelta(pending.toString())
-                                            pending.clear()
-                                            last = System.nanoTime()
-                                        }
+                            val event = events.line(line) ?: continue
+                            if (event.type !in listOf("delta", "done", "error")) continue
+                            val payload = json.parseToJsonElement(event.data).jsonObject
+                            when (event.type) {
+                                "delta" -> {
+                                    pending.append(
+                                        payload["text"]?.jsonPrimitive?.content.orEmpty()
+                                    )
+                                    if (System.nanoTime() - last > 50_000_000) {
+                                        onDelta(pending.toString())
+                                        pending.clear()
+                                        last = System.nanoTime()
                                     }
-                                    "done" -> done = true
-                                    "error" ->
-                                        error(
-                                            payload["message"]?.jsonPrimitive?.content
-                                                ?: "Reply interrupted."
-                                        )
                                 }
+                                "done" -> done = true
+                                "error" ->
+                                    error(
+                                        payload["message"]?.jsonPrimitive?.content
+                                            ?: "Reply interrupted. Try again."
+                                    )
                             }
                         }
                         check(done) { "Connection interrupted. Retry this message." }

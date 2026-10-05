@@ -2,7 +2,8 @@ import { z } from "zod";
 import { authenticate, isOwner } from "./auth";
 import { configSchema, getConfig, relevantMemories } from "./config";
 import { seal, unseal } from "./vault";
-import { chat, speech, CLOUDFLARE_MODELS, isGroqChatModel } from "./providers";
+import { chat, speech, CLOUDFLARE_MODELS, CLOUDFLARE_SPEECH, FISH_MODELS, isGroqChatModel, safeProviderError } from "./providers";
+import {providerInputSchema,candidateProvider,providerWrite,testProvider} from "./providerAdmin";
 import { startBrowserLogin, browserLoginStatus, completeBrowserLogin } from "./browserLogin";
 import {
   ApiError,
@@ -258,7 +259,8 @@ async function streamChat(
     }
     context.push(...recent);
     const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(), 90000);
+    let expired = false;
+    const timeout = setTimeout(() => { expired=true; abort.abort(); }, 90000);
     request.signal.addEventListener("abort", () => abort.abort(), {
       once: true,
     });
@@ -270,10 +272,12 @@ async function streamChat(
           if (!cancelled) controller.enqueue(event(type, data));
         };
         const task = (async () => {
+          const heartbeat=setInterval(()=>safeSend("ping",{}),10000);
           let status = "failed";
           let failureMessage = "Reply interrupted. Retry this message.";
           try {
             for (let i = 0; i < available.length; i++) {
+              const providerStarted=Date.now();
               try {
                 for await (const delta of chat(
                   available[i],
@@ -284,25 +288,33 @@ async function streamChat(
                 )) {
                   if (abort.signal.aborted) throw new Error("Cancelled");
                   output += delta;
-                  if (output.length > 32000) throw new Error("Output limit");
+                  if (output.length > 32000) throw new ApiError(502,"Reply reached its size limit. Ask for a shorter answer.");
                   safeSend("delta", { text: delta });
                 }
-                if (!output) throw new Error("Empty reply");
+                if (!output) throw new ApiError(502,"The model returned no answer. Test the provider or choose Cloudflare in the console.");
                 status = "complete";
+                await env.DB.prepare("INSERT INTO provider_checks VALUES(?,'live_chat',?,?,?,?,?,?) ON CONFLICT(provider_id,mode) DO UPDATE SET tested_at=excluded.tested_at,ok=excluded.ok,model=excluded.model,duration_ms=excluded.duration_ms,error=excluded.error,error_type=excluded.error_type")
+                  .bind(available[i].id,Date.now(),1,available[i].model,Date.now()-providerStarted,"","").run().catch(()=>{});
                 break;
               } catch (error) {
+                // Only names and provider metadata enter diagnostics, never keys/prompts/tokens.
+                const safe=safeProviderError(error,available[i].kind);
+                await env.DB.prepare("INSERT INTO provider_checks VALUES(?,'live_chat',?,?,?,?,?,?) ON CONFLICT(provider_id,mode) DO UPDATE SET tested_at=excluded.tested_at,ok=excluded.ok,model=excluded.model,duration_ms=excluded.duration_ms,error=excluded.error,error_type=excluded.error_type")
+                  .bind(available[i].id,Date.now(),0,available[i].model,Date.now()-providerStarted,safe.message,error instanceof Error?error.name:"Unknown").run().catch(()=>{});
                 if (
                   output ||
                   abort.signal.aborted ||
                   i === available.length - 1
                 )
-                  throw error;
+                  throw safe;
               }
             }
           } catch (error) {
-            status = abort.signal.aborted ? "cancelled" : "failed";
+            status = abort.signal.aborted && !expired ? "cancelled" : "failed";
             if (error instanceof ApiError) failureMessage = error.message;
+            if(expired)failureMessage="The AI request timed out. Retry or choose another provider in the console.";
           } finally {
+            clearInterval(heartbeat);
             clearTimeout(timeout);
             await env.DB.batch([
               env.DB.prepare(
@@ -384,7 +396,7 @@ export async function route(
   }
   if (!path.startsWith("/api/")) return env.ASSETS.fetch(request);
   if (path === "/api/health")
-    return json({ service: "KITTY", version: "1.0.0" });
+    return json({ service: "KITTY", version: "1.5.0" });
   const origin = request.headers.get("Origin");
   const phoneAuth = path === "/api/login/browser/complete" && origin === PHONE_AUTH_ORIGIN;
   if (origin && origin !== url.origin && !phoneAuth)
@@ -441,69 +453,71 @@ export async function route(
       const rows = await env.DB.prepare(
         "SELECT id,kind,model,enabled FROM providers",
       ).all();
-        return json(rows.results.map((r) => ({ ...r, keyConfigured: r.kind !== "cloudflare" })));
+      const checks=await env.DB.prepare("SELECT * FROM provider_checks").all();
+      return json(rows.results.map((r) => ({ ...r, keyConfigured: r.kind !== "cloudflare",checks:checks.results.filter(c=>c.provider_id===r.id) })));
+    }
+    if(path === "/api/admin/providers/test" && method === "POST") {
+      await quota(env,user.uid,"provider-test",40);
+      const result=await testProvider(env,await body(request));
+      await audit(env,user,`provider.test:${result.provider}:${result.ok?"pass":"fail"}`);
+      return json(result);
+    }
+    if(path === "/api/admin/chat-test" && method === "POST") {
+      await quota(env,user.uid,"provider-test",40);
+      const probeUid=`__kitty_probe__${crypto.randomUUID()}`;
+      const probeUser={...user,uid:probeUid};
+      const jobs:Promise<unknown>[]=[];
+      const probeContext={waitUntil:(p:Promise<unknown>)=>{jobs.push(p);ctx.waitUntil(p);},passThroughOnException(){}} as ExecutionContext;
+      const started=Date.now();
+      try {
+        const response=await streamChat(new Request(`${url.origin}/api/chat`,{method:"POST",headers:{"Content-Type":"application/json"},signal:AbortSignal.any([request.signal,AbortSignal.timeout(60000)]),body:JSON.stringify({requestId:crypto.randomUUID(),conversationId:crypto.randomUUID(),text:"Say hello KITTY in one short sentence."})}),{...env,OWNER_UID:probeUid},probeUser,probeContext);
+        const text=await response.text();
+        await Promise.allSettled(jobs);
+        let preview="",error="";
+        for(const frame of text.split(/\r?\n\r?\n/)) {
+          const kind=frame.match(/^event: (\w+)/)?.[1],payload=frame.match(/\ndata: (.+)/)?.[1];
+          if(!payload)continue;
+          const data=JSON.parse(payload);
+          if(kind==="delta")preview+=data.text||"";
+          if(kind==="error")error=data.message||"Test failed.";
+        }
+        const ok=text.includes("event: done")&&!error&&!!preview;
+        return json({ok,durationMs:Date.now()-started,preview:preview.slice(0,320),...(ok?{}:{error:error||"The route returned no complete reply."})});
+      } finally {
+        await Promise.allSettled(jobs);
+        await env.DB.batch(["messages","requests","conversations","usage","profiles"].map(t=>env.DB.prepare(`DELETE FROM ${t} WHERE uid=?`).bind(probeUid)));
+      }
     }
     if (path === "/api/admin/providers" && method === "PUT") {
-      const input = z
-        .object({
-          id: z.string().regex(/^[a-z0-9-]{1,40}$/),
-            kind: z.enum(["groq", "gemini", "cloudflare"]),
-          model: z
-            .string()
-              .regex(/^[a-zA-Z0-9@._/-]+$/)
-            .max(120),
-          enabled: z.boolean(),
-          key: z.string().min(10).max(512).optional(),
-        })
-        .strict()
-        .parse(await body(request));
-      const old = await env.DB.prepare("SELECT * FROM providers WHERE id=?")
-        .bind(input.id)
-        .first<Provider>();
-        if (input.kind === "groq" && !isGroqChatModel(input.model))
-          throw new ApiError(400, "This is a speech model. Select a text chat model such as openai/gpt-oss-120b.");
-        if (input.kind === "cloudflare" && (!env.AI || !CLOUDFLARE_MODELS.some(m => m === input.model)))
-          throw new ApiError(400, "Choose a supported free Cloudflare model and connect the AI binding.");
-        if (input.kind !== "cloudflare" && !input.key && (!old || old.kind !== input.kind))
-        throw new ApiError(400, "A new provider needs an API key.");
-      if (input.kind !== "cloudflare" && old?.kind !== input.kind && !input.key)
-        throw new ApiError(400, "Changing provider type requires a new key.");
-      const encrypted = input.kind === "cloudflare" ? "" : input.key
-        ? await seal(input.key, env.VAULT_KEY, input.id)
-        : old!.encrypted_key;
-      await env.DB.prepare(
-        "INSERT INTO providers VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,model=excluded.model,enabled=excluded.enabled,encrypted_key=excluded.encrypted_key",
-      )
-        .bind(
-          input.id,
-          input.kind,
-          input.model,
-          input.enabled ? 1 : 0,
-          encrypted,
-        )
-        .run();
-      await audit(env, user, `provider.update:${input.id}`);
-      return json({ saved: true });
+      /* Provider writes use the same validation as pre-save testing. */
+      const input = providerInputSchema.parse(await body(request));
+      const p=await candidateProvider(env,input);
+      await env.DB.batch([providerWrite(env,p),env.DB.prepare("DELETE FROM provider_checks WHERE provider_id=?").bind(p.id)]);
+      await audit(env,user,`provider.update:${p.id}`);
+      return json({saved:true});
+
     }
     const providerPath = path.match(/^\/api\/admin\/providers\/([a-z0-9-]+)$/);
     if (providerPath && method === "DELETE") {
-      await env.DB.prepare("DELETE FROM providers WHERE id=?")
-        .bind(providerPath[1])
-        .run();
+      await env.DB.batch([
+        env.DB.prepare("DELETE FROM providers WHERE id=?").bind(providerPath[1]),
+        env.DB.prepare("DELETE FROM provider_checks WHERE provider_id=?").bind(providerPath[1]),
+      ]);
       await audit(env, user, `provider.delete:${providerPath[1]}`);
       return json({ deleted: true });
     }
     if (path === "/api/admin/models" && method === "GET") {
       const p = await provider(env, url.searchParams.get("provider") || "");
-      if (p.kind === "cloudflare") return json(CLOUDFLARE_MODELS);
+      if (p.kind === "cloudflare") return json([...CLOUDFLARE_MODELS,CLOUDFLARE_SPEECH]);
+      if (p.kind === "fish") return json(FISH_MODELS);
       const key = await unseal(p.encrypted_key, env.VAULT_KEY, p.id);
       const response = await fetch(
-        p.kind === "groq"
+        p.kind === "elevenlabs" ? "https://api.elevenlabs.io/v1/models" : p.kind === "groq"
           ? "https://api.groq.com/openai/v1/models"
           : "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
         {
           headers:
-            p.kind === "groq"
+            p.kind === "elevenlabs" ? {"xi-api-key":key} : p.kind === "groq"
               ? { Authorization: `Bearer ${key}` }
               : { "x-goog-api-key": key },
           signal: AbortSignal.timeout(15000),
@@ -518,6 +532,7 @@ export async function route(
         data?: { id: string }[];
         models?: { name: string; supportedGenerationMethods?: string[] }[];
       };
+      if(p.kind === "elevenlabs")return json((data as unknown as {model_id:string;can_do_text_to_speech:boolean}[]).filter(m=>m.can_do_text_to_speech).map(m=>m.model_id));
       return json(
         p.kind === "groq"
           ? (data.data || []).map((m) => m.id).filter(isGroqChatModel)

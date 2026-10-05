@@ -8,7 +8,7 @@ export const configSchema = z.object({
   speechProvider: z.string().max(40),
   speechModel: z
     .string()
-    .regex(/^[a-zA-Z0-9._/-]+$/)
+    .regex(/^[a-zA-Z0-9@._/-]+$/)
     .max(120),
   speechVoice: z
     .string()

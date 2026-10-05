@@ -60,7 +60,7 @@ function walk(path) {
   )
     return;
   const file = relative(root, path).replaceAll("\\", "/");
-  if (/\.(png|webp|jar)$/.test(file)) {
+  if (/\.(png|webp|jar|wav)$/.test(file)) {
     binary.push({
       path: file,
       encoding: "base64",
@@ -79,6 +79,26 @@ mkdirSync(join(root, ".tooling"), { recursive: true });
 writeFileSync(
   join(root, ".tooling", "repository-manifest.json"),
   JSON.stringify({ text, binary }),
+);
+// Keep the configured local archive separate from the public GitHub export.
+// Owner identities are setup values, not required public source metadata.
+const ownerEmail = readFileSync(join(root, "backend/wrangler.toml"), "utf8")
+  .match(/^OWNER_EMAIL\s*=\s*"([^"]+)"/m)?.[1];
+const ownerUid = readFileSync(join(root, "docs/DEPLOYMENT.md"), "utf8")
+  .match(/Exact owner UID: \*\*([^*]+)\*\*/)?.[1];
+const publicText = text.map((entry) => {
+  let content = entry.content;
+  if (ownerEmail) content = content.replaceAll(ownerEmail, "owner@example.com");
+  if (ownerUid) content = content.replaceAll(ownerUid, "OWNER_UID (set privately)");
+  if (entry.path === "admin/src/main.ts")
+    content = content.replace("<small>Owner: owner@example.com</small>", "<small>Owner account only</small>");
+  if (entry.path === "README.md")
+    content += "\n## Public source configuration\n\nThis GitHub export uses owner@example.com as an owner-email placeholder and omits the owner's exact Firebase UID. Before deploying this checkout, set OWNER_EMAIL in backend/wrangler.toml and the email constant in scripts/finish-firebase-setup.mjs to your verified owner account. Keep the exact OWNER_UID in Cloudflare Worker Secrets. The locally delivered source archive retains the configured owner values; the current deployed service remains configured.\n";
+  return { ...entry, content };
+});
+writeFileSync(
+  join(root, ".tooling", "repository-public-manifest.json"),
+  JSON.stringify({ text: publicText, binary }),
 );
 console.log(
   `Prepared ${text.length} text files and ${binary.length} binary files. Private files excluded.`,

@@ -424,3 +424,5 @@ footer {
     min-height: 100vh;
   }
 }
+
+.provider-actions,.form-actions{display:flex;gap:8px;flex-wrap:wrap}.provider{flex-wrap:wrap}.hint{font-size:12px;color:var(--muted);line-height:1.6}.check-result,.test-pass{color:#a9d9c2}.check-result.fail,.test-fail{color:#ffb4ab}audio{width:100%;margin-top:12px}.testing-help button{margin:8px 8px 0 0}pre{white-space:pre-wrap;overflow-wrap:anywhere}

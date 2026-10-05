@@ -12,16 +12,17 @@ import { readFileSync } from "node:fs";
 import { SignJWT, generateKeyPair, exportJWK, createLocalJWKSet } from "jose";
 import { identityFromClaims, isOwner, verifyToken } from "../src/auth";
 import { seal, unseal } from "../src/vault";
-import { sseData, speech, chat, CLOUDFLARE_MODELS, cloudflareContext } from "../src/providers";
+import { sseData, speech, chat, CLOUDFLARE_MODELS, cloudflareContext, safeProviderError } from "../src/providers";
 import { challenge, completeBrowserLogin, browserLoginStatus, verifyGoogleCredential } from "../src/browserLogin";
 import worker, { route, trustedRelease } from "../src/index";
 import { DEFAULT_CONFIG, relevantMemories } from "../src/config";
 import type { Env, Identity } from "../src/types";
+import { ApiError } from "../src/types";
 let mf: Miniflare, env: Env;
 let pending: Promise<unknown>[] = [];
 const owner = {
   uid: "owner-uid",
-  email: "viratanand1221@gmail.com",
+  email: "owner@example.com",
   authTime: 1,
 };
 const alice = { uid: "alice", email: "alice@example.com", authTime: 1 };
@@ -68,7 +69,7 @@ beforeAll(async () => {
     VAULT_KEY: btoa("12345678901234567890123456789012"),
     RELEASE_REPOSITORY: "psychspy7/KITTY.AI-v2",
   };
-  for (const sql of ["0001.sql", "0002_login_and_free_ai.sql"].map(file => readFileSync(
+  for (const sql of ["0001.sql", "0002_login_and_free_ai.sql", "0003_provider_checks_and_voices.sql"].map(file => readFileSync(
     new URL(`../migrations/${file}`, import.meta.url),
     "utf8",
   )).join("\n")
@@ -92,6 +93,7 @@ beforeEach(async () => {
     "usage",
     "profiles",
     "providers",
+    "provider_checks",
     "settings",
     "announcements",
     "notice_reads",
@@ -671,3 +673,100 @@ describe("Cloudflare free chat", () => {
 });
 
 it("pins first-party APK updates as well as the owner repository",()=>{expect(trustedRelease("https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk",env.RELEASE_REPOSITORY)).toBe(true);expect(trustedRelease("https://evil.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk",env.RELEASE_REPOSITORY)).toBe(false);expect(trustedRelease("https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk?x=1",env.RELEASE_REPOSITORY)).toBe(false);});
+
+describe("v1.5 provider checks and speech", () => {
+  it("loads Cloudflare speech settings without blocking chat or the owner console", async () => {
+    await ready();
+    await env.DB.prepare("UPDATE settings SET data=? WHERE id=1")
+      .bind(JSON.stringify({...enabled,speechProvider:"cloudflare-free",speechModel:"@cf/myshell-ai/melotts",speechVoice:"en"})).run();
+    expect((await (await request(owner,"admin/config")).json() as any).speechModel).toBe("@cf/myshell-ai/melotts");
+    vi.spyOn(globalThis,"fetch").mockResolvedValue(providerStream());
+    expect(await (await request(owner,"admin/chat-test","POST",{})).json()).toMatchObject({ok:true});
+  });
+  it("requires the exact owner for provider and route tests", async () => {
+    await expect(request(alice,"admin/providers/test","POST",{id:"groq-main",kind:"groq",model:"test",mode:"chat"})).rejects.toMatchObject({status:403});
+    await expect(request(alice,"admin/chat-test","POST",{})).rejects.toMatchObject({status:403});
+  });
+  it("tests a new key before saving and keeps a working key on failure", async () => {
+    await ready();
+    const old=await env.DB.prepare("SELECT encrypted_key FROM providers WHERE id='groq-main'").first();
+    vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response("private upstream secret",{status:401}));
+    const result=await (await request(owner,"admin/providers/test","POST",{id:"groq-main",kind:"groq",model:"openai/gpt-oss-120b",mode:"chat",key:"rejected-test-key",save:true})).json() as any;
+    expect(result.ok).toBe(false);
+    expect(result.saved).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("private upstream secret");
+    expect(JSON.stringify(result)).not.toContain("rejected-test-key");
+    expect(await env.DB.prepare("SELECT encrypted_key FROM providers WHERE id='groq-main'").first()).toEqual(old);
+  });
+  it("saves a successful test encrypted and exposes only test metadata", async () => {
+    await ready();
+    vi.spyOn(globalThis,"fetch").mockResolvedValue(providerStream());
+    const result=await (await request(owner,"admin/providers/test","POST",{id:"groq-main",kind:"groq",model:"openai/gpt-oss-120b",mode:"chat",key:"replacement-key",save:true})).json() as any;
+    expect(result).toMatchObject({ok:true,saved:true,preview:"Hi Sir."});
+    const saved=await env.DB.prepare("SELECT encrypted_key FROM providers WHERE id='groq-main'").first<{encrypted_key:string}>();
+    expect(saved?.encrypted_key).not.toContain("replacement-key");
+    expect(await unseal(saved!.encrypted_key,env.VAULT_KEY,"groq-main")).toBe("replacement-key");
+    const listed=await (await request(owner,"admin/providers")).text();
+    expect(listed).toContain("tested_at");
+    expect(listed).not.toContain("replacement-key");
+    expect(listed).not.toContain("encrypted_key");
+  });
+  it("the real chat-route probe completes and removes its synthetic history", async () => {
+    await ready();
+    vi.spyOn(globalThis,"fetch").mockResolvedValue(providerStream());
+    const result=await (await request(owner,"admin/chat-test","POST",{})).json() as any;
+    expect(result).toMatchObject({ok:true,preview:"Hi Sir."});
+    for(const table of ["messages","requests","conversations","profiles"])
+      expect((await env.DB.prepare("SELECT COUNT(*) AS n FROM "+table).first<{n:number}>())!.n).toBe(0);
+  });
+  it("reports rate limits safely and stores a failed live-provider check", async () => {
+    await ready();
+    vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response("secret",{status:429}));
+    const reply=await request(alice,"chat","POST",{requestId:"rate-test",conversationId:"rate-chat",text:"hello"});
+    expect(await reply.text()).toContain("Groq rate limit");
+    await Promise.all(pending);
+    const check=await env.DB.prepare("SELECT * FROM provider_checks WHERE mode='live_chat'").first<any>();
+    expect(check?.ok).toBe(0);
+    expect(check?.error).not.toContain("secret");
+  });
+  it("preserves multiline SSE JSON and UTF-8 boundaries", async () => {
+    const bytes=new TextEncoder().encode('data: {\n: comment\ndata: "text":"猫"}\n\n');
+    const stream=new ReadableStream<Uint8Array>({start(c){ for(const b of bytes)c.enqueue(Uint8Array.of(b));c.close(); }});
+    const frames=[];for await(const value of sseData(stream))frames.push(value);
+    expect(frames).toEqual(['{\n"text":"猫"}']);
+  });
+  it("rejects a completed reasoning-only reply instead of claiming success", async () => {
+    const p={id:"groq-main",kind:"groq" as const,model:"openai/gpt-oss-120b",enabled:1,encrypted_key:await seal("test-provider-key",env.VAULT_KEY,"groq-main")};
+    vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response('data: {"choices":[{"delta":{"reasoning":"thinking"},"finish_reason":"length"}]}\n\ndata: [DONE]\n\n'));
+    await expect((async()=>{for await(const _ of chat(p,env,[{role:"user",content:"hi"}],1024,new AbortController().signal)){} })()).rejects.toThrow("no visible answer");
+  });
+  it.each(["elevenlabs","fish"] as const)("uses the official %s speech contract and MP3 response", async kind => {
+    const id=kind+"-test";
+    const p={id,kind,model:kind==="fish"?"s2.1-pro-free":"eleven_multilingual_v2",enabled:1,encrypted_key:await seal("test-speech-key",env.VAULT_KEY,id)};
+    const mock=vi.spyOn(globalThis,"fetch").mockResolvedValue(new Response(Uint8Array.of(73,68,51,4,0,0,0,0,0,0)));
+    expect((await speech(p,env,"Hello Sir",p.model,"voice123",new AbortController().signal)).mimeType).toBe("audio/mpeg");
+    const [url,init]=mock.mock.calls[0];
+    const headers=init!.headers as Record<string,string>,body=JSON.parse(init!.body as string);
+    expect(body.text).toBe("Hello Sir");
+    if(kind==="fish") {
+      expect(url).toBe("https://api.fish.audio/v1/tts");
+      expect(headers.model).toBe("s2.1-pro-free");
+      expect(headers.Authorization).toBe("Bearer test-speech-key");
+      expect(body.reference_id).toBe("voice123");
+    } else {
+      expect(String(url)).toContain("/text-to-speech/voice123");
+      expect(headers["xi-api-key"]).toBe("test-speech-key");
+      expect(body.model_id).toBe("eleven_multilingual_v2");
+    }
+  });
+  it("rejects unknown Fish model spellings before a request can default to paid inference", async () => {
+    const p={id:"fish-test",kind:"fish" as const,model:"s2.1-pro-free",enabled:1,encrypted_key:await seal("test-speech-key",env.VAULT_KEY,"fish-test")};
+    const mock=vi.spyOn(globalThis,"fetch");
+    await expect(speech(p,env,"Hi","s2.1-pro-fre","voice",new AbortController().signal)).rejects.toThrow("exact supported Fish model");
+    expect(mock).not.toHaveBeenCalled();
+  });
+  it("never displays an arbitrary upstream exception message", () => {
+    expect(safeProviderError(new Error("super-secret-key"),"groq").message).not.toContain("super-secret-key");
+    expect(safeProviderError(new ApiError(429,"Safe rate limit"),"groq").message).toBe("Safe rate limit");
+  });
+});

@@ -6,7 +6,7 @@ The complete source includes the Android app, Cloudflare Worker API, D1 migratio
 
 **Start with [the beginner guide](docs/BEGINNER-GUIDE.md).** Read [the validation report](docs/VALIDATION.md) before treating a build as production-ready. This project does not embed provider keys in the Android app.
 
-[Download KITTY AI 1.0.3](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk) · [Owner console](https://kitty-ai-v2.kitty-ai.workers.dev) · [Deployment status](docs/DEPLOYMENT.md). The signed release is connected to the deployed backend. Firebase Google login, authorized domain, release fingerprints and exact owner UID are configured. Groq is configured with a tested text chat model and a free Cloudflare fallback. The browser sign-in page is hosted on the existing Firebase domain, and KITTY completes login when it returns to the foreground.
+[Download KITTY AI 1.5.0](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.5.0.apk) · [Owner console](https://kitty-ai-v2.kitty-ai.workers.dev) · [Deployment status](docs/DEPLOYMENT.md). The signed release is connected to the deployed backend. Firebase Google login, authorized domain, release fingerprints and exact owner UID are configured. Cloudflare free chat is primary, with the saved Groq key preserved as fallback. The console tests real requests before saving; device speech and Cloudflare/ElevenLabs/Fish adapters are included. The browser sign-in page is hosted on the existing Firebase domain, and KITTY completes login when it returns to the foreground.
 
 ## Architecture
 
@@ -18,11 +18,12 @@ flowchart LR
   W --> V[Encrypted provider vault]
   W --> D[D1: per-user history and memories]
   W --> G[Groq streamed chat]
-  W --> S[Gemini speech]
+  W --> S[Cloudflare / Gemini / ElevenLabs / Fish speech]
+  A --> T[Free Android device voice]
   A --> L[Private local account cache]
 ```
 
-Firebase provides Authentication only; D1 is the selected backend for history and memory. No Firestore, Cloud Functions, Firebase Storage, phone-control APIs, microphone or background notifications are required.
+Firebase provides Authentication and a static Hosting login page; D1 is the selected backend for history and memory. No Firestore, Cloud Functions, Firebase Storage, phone-control APIs, microphone or background notifications are required.
 
 ## Source layout
 
@@ -44,3 +45,7 @@ On Windows, run `./scripts/install-android-tools.ps1`, then `./scripts/build-and
 An APK build is not evidence of a working production account, model call, Google sign-in or device installation. Those depend on account setup and the checks documented in the validation report. A core prompt can guide a model’s identity, but cannot guarantee perfect resistance to model prompt injection. Credentials and backend authorization never depend on model obedience.
 
 Saving conversations, reviewing examples and fine-tuning are separate processes. No model training job is included or claimed.
+
+## Public source configuration
+
+This GitHub export uses owner@example.com as an owner-email placeholder and omits the owner's exact Firebase UID. Before deploying this checkout, set OWNER_EMAIL in backend/wrangler.toml and the email constant in scripts/finish-firebase-setup.mjs to your verified owner account. Keep the exact OWNER_UID in Cloudflare Worker Secrets. The locally delivered source archive retains the configured owner values; the current deployed service remains configured.

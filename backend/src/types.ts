@@ -17,7 +17,7 @@ export interface Identity {
 }
 export interface Provider {
   id: string;
-  kind: "groq" | "gemini" | "cloudflare";
+  kind: "groq" | "gemini" | "cloudflare" | "elevenlabs" | "fish";
   model: string;
   enabled: number;
   encrypted_key: string;

@@ -1,3 +1,4 @@
+import {renderProviders,stopProviderPreview} from "./providerPanel";
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -32,6 +33,7 @@ async function api(path: string, method = "GET", data?: unknown) {
   if (!user) throw new Error("Sign in first.");
   const response = await fetch(`/api/${path}`, {
     method,
+    signal:AbortSignal.timeout(95000),
     headers: {
       Authorization: `Bearer ${await user.getIdToken()}`,
       "Content-Type": "application/json",
@@ -39,7 +41,10 @@ async function api(path: string, method = "GET", data?: unknown) {
     body: data ? JSON.stringify(data) : undefined,
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || "Request failed");
+  if (!response.ok) {
+    const details=Array.isArray(result.details)?result.details.map((d:any)=>`${d.path?.join(".")||"request"}: ${d.message}`).join("; "):"";
+    throw new Error((result.error || "Request failed")+(details?" "+details:""));
+  }
   return result;
 }
 function notify(message: string, error = false) {
@@ -53,7 +58,8 @@ function field(label: string, id: string, value: unknown, type = "text") {
   return `<label>${escape(label)}<input id="${id}" type="${type}" value="${escape(value)}"></label>`;
 }
 function shell(content: string) {
-  app.innerHTML = `<aside><a class="brand" href="/"><img src="/kitty-icon.png" alt="KITTY"><span>KITTY<span class="brand-sub">CONTROL ROOM</span></span></a><div class="nav-label">WORKSPACE</div><nav>${["overview", "providers", "personality", "limits", "announcements", "updates", "examples"].map((n) => `<button data-section="${n}" class="${section === n ? "active" : ""}">${n[0].toUpperCase() + n.slice(1)}</button>`).join("")}</nav><div class="aside-footer"><span class="live-dot"></span> Owner session<br><small>${escape(user?.email)}</small><button id="logout">Sign out</button></div></aside><main><header><span class="eyebrow">KITTY CORP / ADMIN</span><span class="badge">PRIVATE</span></header><div id="status" class="status" role="status"></div>${content}<footer>Created by Virat with the help of Kitty Corp. Keys stay on the backend.</footer></main>`;
+  stopProviderPreview();
+  app.innerHTML = `<aside><a class="brand" href="/"><img src="/kitty-icon.png" alt="KITTY"><span>KITTY<span class="brand-sub">CONTROL ROOM</span></span></a><div class="nav-label">WORKSPACE</div><nav>${["overview", "providers", "personality", "limits", "announcements", "updates", "examples"].map((n) => `<button data-section="${n}" class="${section === n ? "active" : ""}">${n[0].toUpperCase() + n.slice(1)}</button>`).join("")}</nav><div class="aside-footer"><span class="live-dot"></span> Owner session<br><small>${escape(user?.email)}</small><button id="logout">Sign out</button></div></aside><main><header><span class="eyebrow">KITTY CORP / ADMIN</span><span class="badge">PRIVATE</span></header><div id="status" class="status" role="status"></div>${content}<footer>Created by Virat · <a href="https://kittycorp.vercel.app/" target="_blank" rel="noopener noreferrer">Made by Kitty Corp</a>. Keys stay on the backend.</footer></main>`;
   document.querySelectorAll<HTMLButtonElement>("[data-section]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -98,7 +104,7 @@ async function load() {
         "A little wit. A lot of control.",
         "Your companion, your rules. Everything KITTY needs lives here.",
       ) +
-        `<div class="hero"><div><span class="eyebrow">SERVICE STATUS</span><h2>${config.enabled ? "Ready for conversation." : "Taking a little catnap."}</h2><p>${config.enabled ? "KITTY is available to signed-in users." : "Configure a provider, then bring KITTY online."}</p><button id="toggle" class="primary">${config.enabled ? "Pause service" : "Enable service"}</button></div><img src="/kitty-icon.png" alt="KITTY emblem"></div><div class="cards"><article><span class="eyebrow">CHAT PROVIDERS</span><h2>${providers.filter((p) => p.enabled).length}</h2><p>Keys are encrypted. Saved values are never returned.</p></article><article><span class="eyebrow">DAILY CHAT LIMIT</span><h2>${config.dailyChatLimit}</h2><p>Per user · resets at midnight UTC</p></article><article><span class="eyebrow">SPEECH</span><h2>Gemini</h2><p>${escape(config.speechModel)}</p></article></div><article><h3>Secure owner activation</h3><p>Your verified Firebase UID:</p><code>${escape(user?.uid)}</code><p>Backend access requires this exact UID, the owner email, and a verified Google session.</p></article>`,
+        `<div class="hero"><div><span class="eyebrow">SERVICE STATUS</span><h2>${config.enabled ? "Ready for conversation." : "Taking a little catnap."}</h2><p>${config.enabled ? "KITTY is available to signed-in users." : "Configure a provider, then bring KITTY online."}</p><button id="toggle" class="primary">${config.enabled ? "Pause service" : "Enable service"}</button></div><img src="/kitty-icon.png" alt="KITTY emblem"></div><div class="cards"><article><span class="eyebrow">CHAT PROVIDERS</span><h2>${providers.filter((p) => p.enabled).length}</h2><p>Keys are encrypted. Saved values are never returned.</p></article><article><span class="eyebrow">DAILY CHAT LIMIT</span><h2>${config.dailyChatLimit}</h2><p>Per user · resets at midnight UTC</p></article><article><span class="eyebrow">SPEECH</span><h2>${escape(providers.find(p=>p.id===config.speechProvider)?.kind || "Device voice")}</h2><p>${escape(config.speechModel)}</p></article></div><article><h3>Secure owner activation</h3><p>Your verified Firebase UID:</p><code>${escape(user?.uid)}</code><p>Backend access requires this exact UID, the owner email, and a verified Google session.</p></article>`,
     );
     document.getElementById("toggle")!.onclick = async () => {
       try {
@@ -110,72 +116,7 @@ async function load() {
       }
     };
   } else if (section === "providers") {
-    shell(
-      title(
-        "The engine room.",
-        "Add Groq for chat and Gemini for speech. Users never see a key.",
-      ) +
-        `<div class="two-col"><article><h3>Configured providers</h3>${providers.map((p) => `<div class="provider"><div><strong>${escape(p.id)}</strong><p>${escape(p.kind)} / ${escape(p.model)}</p><small>${p.kind === "cloudflare" ? "Free allowance · no key required" : "Key configured"} · ${p.enabled ? "enabled" : "paused"}</small></div><button data-models="${escape(p.id)}">Models</button><button data-delete="${escape(p.id)}" class="danger">Remove</button></div>`).join("") || "<p>No providers yet.</p>"}<pre id="models"></pre></article><article><h3>Add or update a provider</h3><form id="provider-form">${field("ID (groq-main, groq-fast or gemini-speech)", "provider-id", "groq-main")}<label>Provider<select id="kind"><option value="groq">Groq</option><option value="gemini">Gemini</option><option value="cloudflare">Cloudflare free AI (no key)</option></select></label>${field("Chat model", "model", "openai/gpt-oss-120b")}${field("API key · Cloudflare needs no key; leave blank to preserve an existing key", "key", "", "password")}<label class="check"><input type="checkbox" id="provider-enabled" checked>Enabled</label><button class="primary" type="submit">Save provider</button></form></article></div><article><form id="routing">${field("Ordered chat provider IDs, separated by commas", "order", config.chatProviders.join(","))}${field("Speech provider ID", "speech-provider", config.speechProvider)}${field("Gemini TTS model", "speech-model", config.speechModel)}${field("Voice", "voice", config.speechVoice)}<p>Fallbacks apply before the first text arrives. A partial reply is never silently replaced.</p><button type="submit" class="primary">Save routing</button></form></article>`,
-    );
-    document.getElementById("kind")!.addEventListener("change", () => {
-      const free = value("kind") === "cloudflare";
-      (document.getElementById("key") as HTMLInputElement).disabled = free;
-      if (free) {
-        (document.getElementById("provider-id") as HTMLInputElement).value = "cloudflare-free";
-        (document.getElementById("model") as HTMLInputElement).value = "@cf/meta/llama-3.1-8b-instruct-fp8";
-        (document.getElementById("key") as HTMLInputElement).value = "";
-      } else {
-        (document.getElementById("provider-id") as HTMLInputElement).value = value("kind") === "groq" ? "groq-main" : "gemini-speech";
-        (document.getElementById("model") as HTMLInputElement).value = value("kind") === "groq" ? "openai/gpt-oss-120b" : config.speechModel;
-      }
-    });
-    submit("provider-form", async () => {
-      await api("admin/providers", "PUT", {
-        id: value("provider-id"),
-        kind: value("kind"),
-        model: value("model"),
-        enabled: (
-          document.getElementById("provider-enabled") as HTMLInputElement
-        ).checked,
-        ...(value("key") ? { key: value("key") } : {}),
-      });
-      (document.getElementById("key") as HTMLInputElement).value = "";
-      await load();
-    });
-    submit("routing", async () => {
-      config.chatProviders = value("order")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      config.speechProvider = value("speech-provider");
-      config.speechModel = value("speech-model");
-      config.speechVoice = value("voice");
-      await saveConfig();
-    });
-    document.querySelectorAll<HTMLButtonElement>("[data-delete]").forEach(
-      (b) =>
-        (b.onclick = async () => {
-          if (!confirm(`Remove ${b.dataset.delete}?`)) return;
-          try {
-            await api(`admin/providers/${b.dataset.delete}`, "DELETE");
-            await load();
-          } catch (e) {
-            notify((e as Error).message, true);
-          }
-        }),
-    );
-    document.querySelectorAll<HTMLButtonElement>("[data-models]").forEach(
-      (b) =>
-        (b.onclick = async () => {
-          try {
-            document.getElementById("models")!.textContent = (
-              await api(`admin/models?provider=${b.dataset.models}`)
-            ).join("\n");
-          } catch (e) {
-            notify((e as Error).message, true);
-          }
-        }),
-    );
+    renderProviders({config,providers,shell,api,load,saveConfig,notify});
   } else if (section === "personality") {
     shell(
       title(
@@ -269,7 +210,8 @@ async function load() {
   }
 }
 function login() {
-  app.innerHTML = `<div class="login"><img src="/kitty-icon.png" alt="KITTY"><span class="eyebrow">KITTY / CONTROL ROOM</span><h1>Good to see you, Sir.</h1><p>A companion with character.<br>A control room with boundaries.</p><button id="login" class="primary">Sign in with Google</button><p id="login-error" role="alert"></p><small>Owner: viratanand1221@gmail.com</small></div>`;
+  stopProviderPreview();
+  app.innerHTML = `<div class="login"><img src="/kitty-icon.png" alt="KITTY"><span class="eyebrow">KITTY / CONTROL ROOM</span><h1>Good to see you, Sir.</h1><p>A companion with character.<br>A control room with boundaries.</p><button id="login" class="primary">Sign in with Google</button><p id="login-error" role="alert"></p><small>Owner account only</small></div>`;
   document.getElementById("login")!.onclick = () => {
     const p = new GoogleAuthProvider();
     p.setCustomParameters({ prompt: "select_account" });

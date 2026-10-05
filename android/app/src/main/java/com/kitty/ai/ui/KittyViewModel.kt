@@ -5,6 +5,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
+import com.kitty.ai.audio.DeviceSpeaker
 import com.kitty.ai.audio.SpeechPlayer
 import com.kitty.ai.auth.BrowserLogin
 import com.kitty.ai.auth.GoogleLogin
@@ -42,6 +43,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     private val api = ApiClient(auth)
     private val store = LocalStore(application)
     private val player = SpeechPlayer(application)
+    private val deviceSpeaker = DeviceSpeaker(application)
     private val mutable = MutableStateFlow(KittyState())
     val state = mutable.asStateFlow()
     val updater = AppUpdater(application, viewModelScope)
@@ -73,6 +75,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         speech?.cancel()
         api.cancelAll()
         player.stop()
+        deviceSpeaker.stop()
         mutable.value =
             KittyState(
                 uid = account?.uid,
@@ -384,6 +387,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         speechGeneration++
         speech?.cancel()
         player.stop()
+        deviceSpeaker.stop()
         mutable.update { it.copy(speaking = null) }
     }
 
@@ -397,6 +401,20 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         stopSpeech()
         val playback = speechGeneration
         mutable.update { it.copy(speaking = message.id) }
+        if (mutable.value.data.deviceSpeech) {
+            deviceSpeaker.play(
+                message.text,
+                onFinished = {
+                    if (epoch == generation && speechGeneration == playback)
+                        mutable.update { it.copy(speaking = null) }
+                },
+                onError = { error ->
+                    if (epoch == generation && speechGeneration == playback)
+                        mutable.update { it.copy(speaking = null, error = error) }
+                },
+            )
+            return
+        }
         speech = viewModelScope.launch {
             try {
                 val audio =
@@ -404,7 +422,13 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                         api.send(uid, "speech", "POST", MessageRequest(message.id))
                     )
                 if (epoch == generation && speechGeneration == playback)
-                    player.play(audio) {
+                    player.play(
+                        audio,
+                        onError = { error ->
+                            if (epoch == generation && speechGeneration == playback)
+                                mutable.update { it.copy(speaking = null, error = error) }
+                        },
+                    ) {
                         if (epoch == generation && speechGeneration == playback)
                             mutable.update { it.copy(speaking = null) }
                     }
@@ -417,6 +441,14 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    fun deviceSpeech(value: Boolean) {
+        val uid = mutable.value.uid ?: return
+        val generation = epoch
+        stopSpeech()
+        mutable.update { it.copy(data = it.data.copy(deviceSpeech = value)) }
+        viewModelScope.launch { save(uid, generation) }
     }
 
     fun saveMemory(id: String?, text: String) {
@@ -495,7 +527,11 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
             if (epoch == generation)
                 mutable.update {
                     it.copy(
-                        data = LocalSnapshot(consent = it.data.consent),
+                        data =
+                            LocalSnapshot(
+                                consent = it.data.consent,
+                                deviceSpeech = it.data.deviceSpeech,
+                            ),
                         busy = false,
                         syncing = false,
                         selected = UUID.randomUUID().toString(),
@@ -595,6 +631,8 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         speech?.cancel()
         api.cancelAll()
         player.stop()
+        deviceSpeaker.stop()
+        deviceSpeaker.close()
         super.onCleared()
     }
 }

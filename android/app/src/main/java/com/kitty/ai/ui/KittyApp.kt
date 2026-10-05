@@ -1,6 +1,11 @@
 package com.kitty.ai.ui
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -19,9 +24,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -34,8 +41,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kitty.ai.BuildConfig
 import com.kitty.ai.R
 import com.kitty.ai.data.*
+import kotlinx.coroutines.launch
 
-private val Midnight = Color(0xFF100D20)
+private val Midnight = Color(0xFF151518)
 private val Lilac = Color(0xFFD0B4FF)
 private val KittyColors =
     darkColorScheme(
@@ -43,13 +51,13 @@ private val KittyColors =
         onPrimary = Color(0xFF2C1645),
         secondary = Color(0xFFE8BEDD),
         background = Midnight,
-        surface = Color(0xFF191429),
-        surfaceContainer = Color(0xFF221A34),
-        surfaceContainerHigh = Color(0xFF2B223D),
+        surface = Color(0xFF1B1B1F),
+        surfaceContainer = Color(0xFF252529),
+        surfaceContainerHigh = Color(0xFF2E2E34),
         onBackground = Color(0xFFF4EEFF),
         onSurface = Color(0xFFF4EEFF),
-        onSurfaceVariant = Color(0xFFB0A2C4),
-        outline = Color(0xFF493A5C),
+        onSurfaceVariant = Color(0xFFA7A7B2),
+        outline = Color(0xFF3C3C44),
     )
 
 @Composable
@@ -80,29 +88,74 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
                 vm.dismissError()
             }
         }
-        Scaffold(
-            containerColor = Midnight,
-            snackbarHost = { SnackbarHost(snackbar) },
-            topBar = { if (state.uid != null) KittyHeader(state, vm) },
-            bottomBar = {
-                if (state.uid != null)
-                    KittyNavigation(
-                        state.screen,
-                        state.data.notices.count { it.read == 0 },
-                        vm::navigate,
+        val drawer = rememberDrawerState(DrawerValue.Closed)
+        val scope = rememberCoroutineScope()
+        ModalNavigationDrawer(
+            drawerState = drawer,
+            gesturesEnabled = state.uid != null,
+            drawerContent = {
+                ModalDrawerSheet {
+                    Spacer(Modifier.height(24.dp))
+                    Text(
+                        "KITTY",
+                        Modifier.padding(horizontal = 24.dp),
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.SemiBold,
                     )
+                    Text(
+                        "Your companion, your space.",
+                        Modifier.padding(24.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 13.sp,
+                    )
+                    listOf(
+                            "Chat" to Icons.Outlined.ChatBubbleOutline,
+                            "History" to Icons.Outlined.History,
+                            "Memory" to Icons.Outlined.AutoAwesome,
+                            "Inbox" to Icons.Outlined.Inbox,
+                            "Settings" to Icons.Outlined.Settings,
+                        )
+                        .forEach { (label, icon) ->
+                            NavigationDrawerItem(
+                                label = { Text(label) },
+                                selected = state.screen == label,
+                                onClick = {
+                                    vm.navigate(label)
+                                    scope.launch { drawer.close() }
+                                },
+                                icon = { Icon(icon, null) },
+                                badge = {
+                                    if (label == "Inbox") {
+                                        val unread = state.data.notices.count { it.read == 0 }
+                                        if (unread > 0) Text(unread.toString())
+                                    }
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                            )
+                        }
+                    Spacer(Modifier.weight(1f))
+                    CorpLink(Modifier.padding(12.dp))
+                }
             },
-        ) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding)) {
-                if (state.uid == null) LoginScreen(state, vm, activity)
-                else
-                    when (state.screen) {
-                        "Chat" -> ChatScreen(state, vm)
-                        "History" -> HistoryScreen(state, vm)
-                        "Memory" -> MemoryScreen(state, vm)
-                        "Inbox" -> InboxScreen(state, vm)
-                        "Settings" -> SettingsScreen(state, vm, activity)
-                    }
+        ) {
+            Scaffold(
+                containerColor = Midnight,
+                snackbarHost = { SnackbarHost(snackbar) },
+                topBar = {
+                    if (state.uid != null) KittyHeader(state, vm) { scope.launch { drawer.open() } }
+                },
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+                    if (state.uid == null) LoginScreen(state, vm, activity)
+                    else
+                        when (state.screen) {
+                            "Chat" -> ChatScreen(state, vm)
+                            "History" -> HistoryScreen(state, vm)
+                            "Memory" -> MemoryScreen(state, vm)
+                            "Inbox" -> InboxScreen(state, vm)
+                            "Settings" -> SettingsScreen(state, vm, activity)
+                        }
+                }
             }
         }
         state.update?.let { update ->
@@ -205,65 +258,34 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
 }
 
 @Composable
-private fun KittyHeader(state: KittyState, vm: KittyViewModel) {
+private fun KittyHeader(state: KittyState, vm: KittyViewModel, onMenu: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 22.dp, vertical = 14.dp),
+        Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Image(
-            painterResource(R.drawable.kitty_icon),
-            "KITTY",
-            Modifier.size(38.dp).clip(RoundedCornerShape(11.dp)),
+        IconButton(onClick = onMenu) { Icon(Icons.Outlined.Menu, "Open navigation") }
+        Spacer(Modifier.width(4.dp))
+        Text(
+            if (state.screen == "Chat") "KITTY" else state.screen,
+            Modifier.weight(1f),
+            fontSize = 19.sp,
+            fontWeight = FontWeight.SemiBold,
         )
-        Spacer(Modifier.width(11.dp))
-        Column(Modifier.weight(1f)) {
-            Text("KITTY", fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(5.dp).background(Color(0xFFA9D9C2), CircleShape))
-                Spacer(Modifier.width(5.dp))
-                Text(
-                    if (state.busy) "Finding the words…" else "A little wit. A lot of help.",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
         IconButton(onClick = vm::newChat) { Icon(Icons.Outlined.Add, "New chat") }
-        IconButton(onClick = { vm.navigate("Settings") }) {
-            Icon(Icons.Outlined.Settings, "Settings")
-        }
     }
 }
 
 @Composable
-private fun KittyNavigation(screen: String, unread: Int, onSelect: (String) -> Unit) {
-    NavigationBar(containerColor = Color(0xFF171124), tonalElevation = 0.dp) {
-        listOf(
-                "Chat" to Icons.Outlined.ChatBubbleOutline,
-                "History" to Icons.Outlined.History,
-                "Memory" to Icons.Outlined.AutoAwesome,
-                "Inbox" to Icons.Outlined.Inbox,
-            )
-            .forEach { (label, icon) ->
-                NavigationBarItem(
-                    selected = screen == label,
-                    onClick = { onSelect(label) },
-                    icon = {
-                        if (label == "Inbox" && unread > 0)
-                            BadgedBox(badge = { Badge { Text(unread.toString()) } }) {
-                                Icon(icon, label)
-                            }
-                        else Icon(icon, label)
-                    },
-                    label = { Text(label, fontSize = 10.sp) },
-                    colors =
-                        NavigationBarItemDefaults.colors(
-                            indicatorColor = Color(0xFF372547),
-                            selectedIconColor = Lilac,
-                            selectedTextColor = Lilac,
-                        ),
-                )
-            }
+private fun CorpLink(modifier: Modifier = Modifier) {
+    val uri = LocalUriHandler.current
+    TextButton(onClick = { uri.openUri("https://kittycorp.vercel.app/") }, modifier = modifier) {
+        Text(
+            "Made by Kitty Corp",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.width(5.dp))
+        Icon(Icons.Outlined.NorthEast, null, Modifier.size(13.dp))
     }
 }
 
@@ -271,7 +293,7 @@ private fun KittyNavigation(screen: String, unread: Int, onSelect: (String) -> U
 private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activity) {
     Column(
         Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF25163A), Midnight, Midnight)))
+            .background(Midnight)
             .verticalScroll(rememberScrollState())
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -280,12 +302,12 @@ private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activit
         Image(
             painterResource(R.drawable.kitty_icon),
             "KITTY emblem",
-            Modifier.size(146.dp).clip(RoundedCornerShape(40.dp)),
+            Modifier.size(104.dp).clip(RoundedCornerShape(28.dp)),
         )
-        Spacer(Modifier.height(35.dp))
+        Spacer(Modifier.height(24.dp))
         Text("YOUR EVERYDAY +1", color = Lilac, fontSize = 10.sp, letterSpacing = 3.sp)
         Spacer(Modifier.height(15.dp))
-        Text("Meet KITTY.", fontSize = 40.sp, fontWeight = FontWeight.SemiBold)
+        Text("Meet KITTY.", fontSize = 34.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(14.dp))
         Text(
             "Sharp mind. Soft landing.\nA little mischief, always on your side.",
@@ -351,6 +373,7 @@ private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activit
             lineHeight = 17.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        CorpLink()
         if (!vm.backendConfigured) {
             Spacer(Modifier.height(20.dp))
             Text(
@@ -363,8 +386,34 @@ private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activit
 }
 
 @Composable
-private fun ChatScreen(state: KittyState, vm: KittyViewModel) {
+internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
     var draft by remember(state.uid, state.selected) { mutableStateOf("") }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val voiceAccount = remember { mutableStateOf<String?>(null) }
+    val currentUid by rememberUpdatedState(state.uid)
+    var voiceError by remember { mutableStateOf<String?>(null) }
+    val voiceInput =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result
+            ->
+            if (result.resultCode == Activity.RESULT_OK && currentUid == voiceAccount.value) {
+                result.data
+                    ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                    ?.firstOrNull()
+                    ?.let {
+                        draft = it.take(8000)
+                    }
+            }
+            voiceAccount.value = null
+        }
+    fun sendDraft() {
+        if (draft.isNotBlank() && !state.busy && !state.syncing) {
+            vm.send(draft)
+            draft = ""
+            keyboard?.hide()
+            focus.clearFocus()
+        }
+    }
     val messages = state.data.messages.filter { it.conversation_id == state.selected }
     val list = rememberLazyListState()
     LaunchedEffect(messages.lastOrNull()?.text?.length, messages.size) {
@@ -378,66 +427,42 @@ private fun ChatScreen(state: KittyState, vm: KittyViewModel) {
         if (messages.isEmpty())
             Column(
                 Modifier.weight(1f)
+                    .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 26.dp, vertical = 30.dp),
+                    .padding(horizontal = 28.dp, vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
-                Text(
-                    "HELLO, ${state.name.ifBlank {"FRIEND"}.uppercase()}",
-                    fontSize = 10.sp,
-                    letterSpacing = 2.sp,
-                    color = Lilac,
+                Image(
+                    painterResource(R.drawable.kitty_icon),
+                    "KITTY emblem",
+                    Modifier.size(60.dp).clip(RoundedCornerShape(18.dp)),
                 )
-                Spacer(Modifier.height(15.dp))
+                Spacer(Modifier.height(24.dp))
+                Text("What’s on your mind?", fontSize = 27.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(12.dp))
                 Text(
-                    "Big thoughts.\nSmall talk.\nI’m all ears.",
-                    fontSize = 38.sp,
-                    lineHeight = 45.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Spacer(Modifier.height(17.dp))
-                Text(
-                    "What’s on your mind? We can untangle it together.",
+                    "Hey, ${state.name.ifBlank { "friend" }}. Let’s figure it out.",
                     fontSize = 14.sp,
-                    lineHeight = 22.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(32.dp))
-                listOf(
-                        "Help me think something through" to Icons.Outlined.Lightbulb,
-                        "Make a plan for my day" to Icons.Outlined.CalendarToday,
-                        "Teach me something surprising" to Icons.Outlined.AutoAwesome,
+                Spacer(Modifier.height(28.dp))
+                listOf("Help me think something through", "Make a plan for my day").forEach { text
+                    ->
+                    SuggestionChip(
+                        onClick = { draft = text },
+                        label = { Text(text, fontSize = 12.sp) },
                     )
-                    .forEach { (text, icon) ->
-                        Surface(
-                            onClick = { draft = text },
-                            shape = RoundedCornerShape(15.dp),
-                            color = Color(0xFF21182F),
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
-                        ) {
-                            Row(
-                                Modifier.padding(17.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(icon, null, Modifier.size(18.dp), tint = Lilac)
-                                Spacer(Modifier.width(12.dp))
-                                Text(text, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                                Icon(
-                                    Icons.Outlined.NorthEast,
-                                    null,
-                                    Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                CorpLink()
             }
         else
             LazyColumn(
                 state = list,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 items(messages, key = { it.id }) { message -> MessageCard(message, state, vm) }
             }
@@ -446,20 +471,52 @@ private fun ChatScreen(state: KittyState, vm: KittyViewModel) {
         }
         Row(
             Modifier.fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .clip(RoundedCornerShape(23.dp))
-                .background(Color(0xFF271D39))
-                .border(1.dp, Color(0xFF4B365E), RoundedCornerShape(23.dp))
-                .padding(start = 5.dp, end = 7.dp),
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(Color(0xFF28282D))
+                .padding(start = 3.dp, end = 7.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
+            IconButton(
+                onClick = {
+                    vm.stopSpeech()
+                    keyboard?.hide()
+                    voiceAccount.value = state.uid
+                    try {
+                        voiceInput.launch(
+                            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(
+                                    RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                    RecognizerIntent.LANGUAGE_MODEL_FREE_FORM,
+                                )
+                                putExtra(
+                                    RecognizerIntent.EXTRA_LANGUAGE,
+                                    java.util.Locale.getDefault().toLanguageTag(),
+                                )
+                                putExtra(
+                                    RecognizerIntent.EXTRA_PROMPT,
+                                    "Speak your message to KITTY",
+                                )
+                            }
+                        )
+                    } catch (_: ActivityNotFoundException) {
+                        voiceAccount.value = null
+                        voiceError =
+                            "No speech recognition app is installed. You can still type your message."
+                    }
+                },
+                enabled = !state.busy && !state.syncing,
+                modifier = Modifier.padding(bottom = 4.dp),
+            ) {
+                Icon(Icons.Outlined.MicNone, "Dictate message", Modifier.size(21.dp))
+            }
             TextField(
                 value = draft,
                 onValueChange = { if (it.length <= 8000) draft = it },
-                placeholder = { Text("Ask KITTY anything…", fontSize = 14.sp) },
+                placeholder = { Text("Message KITTY", fontSize = 15.sp) },
                 modifier = Modifier.weight(1f),
                 maxLines = 5,
-                shape = RoundedCornerShape(23.dp),
+                shape = RoundedCornerShape(26.dp),
                 colors =
                     TextFieldDefaults.colors(
                         focusedContainerColor = Color.Transparent,
@@ -468,30 +525,17 @@ private fun ChatScreen(state: KittyState, vm: KittyViewModel) {
                         unfocusedIndicatorColor = Color.Transparent,
                     ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions =
-                    KeyboardActions(
-                        onSend = {
-                            if (draft.isNotBlank() && !state.busy && !state.syncing) {
-                                vm.send(draft)
-                                draft = ""
-                            }
-                        }
-                    ),
+                keyboardActions = KeyboardActions(onSend = { sendDraft() }),
             )
             IconButton(
-                onClick = {
-                    if (state.busy) vm.stop()
-                    else {
-                        vm.send(draft)
-                        if (draft.isNotBlank() && !state.syncing) draft = ""
-                    }
-                },
+                onClick = { if (state.busy) vm.stop() else sendDraft() },
                 enabled = state.busy || (!state.syncing && draft.isNotBlank()),
                 modifier =
-                    Modifier.padding(bottom = 7.dp)
+                    Modifier.padding(bottom = 8.dp)
                         .size(38.dp)
                         .background(
-                            if (state.busy || draft.isNotBlank()) Lilac else Color(0xFF423150),
+                            if (state.busy || draft.isNotBlank()) Color(0xFFF0EDF5)
+                            else Color(0xFF45454C),
                             CircleShape,
                         ),
             ) {
@@ -505,9 +549,17 @@ private fun ChatScreen(state: KittyState, vm: KittyViewModel) {
         }
         Text(
             "KITTY can make mistakes. Check important details.",
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
-            fontSize = 9.sp,
+            Modifier.align(Alignment.CenterHorizontally).padding(bottom = 6.dp),
+            fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    voiceError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { voiceError = null },
+            title = { Text("Voice input") },
+            text = { Text(message) },
+            confirmButton = { TextButton(onClick = { voiceError = null }) { Text("OK") } },
         )
     }
 }
@@ -524,7 +576,7 @@ private fun MessageCard(message: ChatMessage, state: KittyState, vm: KittyViewMo
             Spacer(Modifier.height(10.dp))
         }
         Surface(
-            color = if (assistant) Color.Transparent else Color(0xFF322344),
+            color = if (assistant) Color.Transparent else Color(0xFF2D2D33),
             shape = RoundedCornerShape(18.dp),
         ) {
             SelectionContainer {
@@ -609,7 +661,7 @@ private fun HistoryScreen(state: KittyState, vm: KittyViewModel) {
                     Surface(
                         onClick = { vm.openChat(chat.id) },
                         shape = RoundedCornerShape(16.dp),
-                        color = Color(0xFF231A32),
+                        color = Color(0xFF222226),
                     ) {
                         Row(
                             Modifier.padding(18.dp),
@@ -693,7 +745,7 @@ private fun MemoryScreen(state: KittyState, vm: KittyViewModel) {
         else
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(state.data.memories, key = { it.id }) { memory ->
-                    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF231A32)) {
+                    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF222226)) {
                         Column(Modifier.padding(18.dp)) {
                             Text(memory.text, fontSize = 14.sp, lineHeight = 23.sp)
                             Row {
@@ -763,7 +815,7 @@ private fun InboxScreen(state: KittyState, vm: KittyViewModel) {
                     Surface(
                         onClick = { vm.readNotice(notice.id) },
                         shape = RoundedCornerShape(18.dp),
-                        color = Color(0xFF231A32),
+                        color = Color(0xFF222226),
                     ) {
                         Column(Modifier.padding(20.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -797,12 +849,12 @@ private fun InboxScreen(state: KittyState, vm: KittyViewModel) {
 }
 
 @Composable
-private fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Activity) {
+internal fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Activity) {
     var consentDialog by remember { mutableStateOf(false) }
     var clearDialog by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
         SectionHeading("Your space.", "A few essentials, exactly where you need them.")
-        Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF231A32)) {
+        Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF222226)) {
             Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     Modifier.size(44.dp).background(Color(0xFF45305E), CircleShape),
@@ -825,7 +877,7 @@ private fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Acti
         SettingsItem(
             Icons.Outlined.SystemUpdate,
             "Check for updates",
-            "Trusted GitHub Releases · ${BuildConfig.VERSION_NAME}",
+            "Verified APK updates · ${BuildConfig.VERSION_NAME}",
             vm::checkUpdates,
         )
         SettingsItem(
@@ -840,7 +892,27 @@ private fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Acti
             "Cloud history remains available",
             { clearDialog = true },
         )
-        HorizontalDivider(Modifier.padding(vertical = 22.dp), color = Color(0xFF342742))
+        HorizontalDivider(Modifier.padding(vertical = 22.dp), color = Color(0xFF35353B))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Use device voice", fontSize = 14.sp)
+                Text(
+                    "Free speech from Android. Turn off for the admin’s cloud voice.",
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = state.data.deviceSpeech, onCheckedChange = vm::deviceSpeech)
+        }
+        Text(
+            "The microphone button opens your phone’s speech recognition service. KITTY does not record in the background.",
+            fontSize = 11.sp,
+            lineHeight = 18.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(vertical = 14.dp),
+        )
+        HorizontalDivider(Modifier.padding(vertical = 16.dp))
         Text("PRIVACY & LEARNING", fontSize = 10.sp, letterSpacing = 2.sp, color = Lilac)
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -865,7 +937,7 @@ private fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Acti
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(vertical = 15.dp),
         )
-        HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Color(0xFF342742))
+        HorizontalDivider(Modifier.padding(vertical = 10.dp), color = Color(0xFF35353B))
         SettingsItem(
             Icons.Outlined.Logout,
             "Switch Google account",
@@ -879,6 +951,7 @@ private fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Acti
             lineHeight = 18.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        CorpLink()
         Text(
             "Firebase UID: ${state.uid}",
             fontSize = 9.sp,

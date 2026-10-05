@@ -69,4 +69,5 @@ data class LocalSnapshot(
     val memories: List<Memory> = emptyList(),
     val notices: List<Notice> = emptyList(),
     val consent: Boolean = false,
+    val deviceSpeech: Boolean = true,
 )

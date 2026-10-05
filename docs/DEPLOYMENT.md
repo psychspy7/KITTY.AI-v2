@@ -1,17 +1,15 @@
-# KITTY deployment status — 5 October 2026
+# KITTY deployment status — v1.5.0
 
-Backend/owner console: **https://kitty-ai-v2.kitty-ai.workers.dev**. D1 kitty-db has migrations **0001/0002**. Worker secrets VAULT_KEY, FIREBASE_WEB_API_KEY and exact OWNER_UID are configured. The AI binding provides a free fallback. No billing plan/payment-card dependency was added.
+The [owner console/backend](https://kitty-ai-v2.kitty-ai.workers.dev) is deployed on Cloudflare Workers Free with D1 migrations **0001–0003** and the AI binding. Existing VAULT_KEY, FIREBASE_WEB_API_KEY and exact OWNER_UID secrets are preserved. No new billing/card dependency was added.
 
-Firebase project **kittyai-f743c** retains the original Android registration. Google Authentication, release/debug certificates and authorized domains are configured. Owner UID is **WCppLHxijDcNqVTxAQkONUrApFm1**. Browser login uses the static first-party page https://kittyai-f743c.firebaseapp.com/phone-login.html, opened with a short-lived session by the app. Only its exact origin is allowed for the completion endpoint; owner APIs remain restricted.
+Firebase **kittyai-f743c** retains Google Authentication, the original Android registration, signing fingerprints and authorized origins. Exact owner UID: **OWNER_UID (set privately)**, paired with the verified Google email. The secure browser fallback retains https://kittyai-f743c.firebaseapp.com/phone-login.html.
 
-Chat is **enabled**, routing **groq-main → cloudflare-free**. Groq uses the existing encrypted key and **openai/gpt-oss-120b**; the incorrectly selected Orpheus speech model was replaced. Both providers returned finished live synthetic streams. Optional Gemini speech still needs a Gemini key. Users supply no keys.
+Chat is enabled, using **cloudflare-free → groq-main**. The saved Groq key/model openai/gpt-oss-120b is preserved. The owner confirmed the deployed complete chat-route test passes; D1 recorded Cloudflare live_chat success (537 ms provider duration). Cloud speech is configured to **@cf/myshell-ai/melotts**, language **en**. Android uses free device speech by default. ElevenLabs, Fish Audio and Gemini remain optional and require their own account keys for live validation.
 
-[Download KITTY 1.0.3](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.3.apk): com.kitty.ai, code **4**, **3,542,551 bytes**. SHA-256: f7873810db3140734e8e92b87e2e8ae0b72945a71eb21cd30baeb36a174864fb. Public bytes match the signed local build. Update over previous owner releases; keep the same signing key.
+[Download KITTY 1.5.0](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.5.0.apk): **com.kitty.ai**, versionCode **5**, **3,558,991 bytes**. SHA-256: **17f60be8f3a771f1e84bd10c537c5870e3b9e57f07caed756c2ff44096ceb7db**. Public download returns HTTP 200 / APK MIME and matches the local owner-signed build.
 
-The console controls keys/models/fallbacks, personality/creator, pause/limits, announcements, updates and eligible consented examples. Sign in with the owner Google account. Backend authorization requires its exact UID and verified email.
+Update metadata is published. Settings → Check for updates downloads and verifies the APK, then opens Android’s installer for user confirmation. Future releases must keep the signing key/package and use versionCode **6 or higher**. Announcements remain in-app Inbox messages without background push.
 
-Settings → Check for updates uses published 1.0.3 metadata/checksum. Future releases can use the pinned KITTY APK path or configured GitHub Releases, preserving signing key and increasing versionCode. Android confirms installation. Notices are in-app, without background push.
+The console now tests real chat/audio requests before saving a provider, offers audio previews and tests the complete chat route. It retains personality, usage limits, notices, update information and eligible consented examples.
 
-For browser-page changes: npm run build -w admin, node scripts/prepare-auth-hosting.mjs, then firebase deploy --only hosting --project kittyai-f743c. Deploy the Worker separately with npm run build -w admin and npx wrangler deploy --config backend/wrangler.toml. Do not recreate the database or replace existing vault/signing keys.
-
-The owner confirmed Android Google sign-in reaches chat in 1.0.3. A completed Android chat reply and the complete updater installer flow still need acceptance. See [validation](VALIDATION.md) and [beginner guide](BEGINNER-GUIDE.md).
+The owner confirmed Google login reached chat in 1.0.3. The owner confirmed a completed reply and keyboard dismissal in v1.5. Remaining speech/account-switch/installer acceptance is recorded in [validation](VALIDATION.md). See the [beginner guide](BEGINNER-GUIDE.md) for operation and releases.

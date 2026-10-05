@@ -17,7 +17,7 @@ const { requireAuth } = require(join(cliRoot, "lib/requireAuth.js"));
 const { Client } = require(join(cliRoot, "lib/apiv2.js"));
 const apps = require(join(cliRoot, "lib/management/apps.js"));
 const project = "kittyai-f743c", app = "1:34203306703:android:1e32ba3a8c58a622d485ba";
-const email = "viratanand1221@gmail.com", domain = "kitty-ai-v2.kitty-ai.workers.dev";
+const email = "owner@example.com", domain = "kitty-ai-v2.kitty-ai.workers.dev";
 const account = auth.getGlobalDefaultAccount();
 if (!account || account.user?.email !== email) throw new Error("Sign into the Firebase CLI as the exact owner email first.");
 await requireAuth({ project, nonInteractive: true, user: account.user, tokens: account.tokens });

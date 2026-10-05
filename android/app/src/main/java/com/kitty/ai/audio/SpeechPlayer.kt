@@ -27,10 +27,18 @@ class SpeechPlayer(private val context: Context) {
         audioFile = null
     }
 
-    fun play(audio: SpeechAudio, onFinished: () -> Unit) {
+    fun play(audio: SpeechAudio, onError: (String) -> Unit = {}, onFinished: () -> Unit) {
         stop()
         val playback = generation
-        require(audio.mimeType == "audio/wav") { "Unsupported audio format." }
+        val extension =
+            when (audio.mimeType) {
+                "audio/wav",
+                "audio/x-wav" -> ".wav"
+                "audio/mpeg",
+                "audio/mp3" -> ".mp3"
+                else -> error("Unsupported audio format.")
+            }
+        require(audio.data.length <= 6_000_000) { "Voice audio is too large." }
         val attributes =
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -50,27 +58,32 @@ class SpeechPlayer(private val context: Context) {
             "Audio is busy. Try again."
         }
         focus = request
-        val file = File.createTempFile("kitty-voice-", ".wav", context.cacheDir)
-        audioFile = file
-        file.writeBytes(Base64.decode(audio.data, Base64.DEFAULT))
-        val next = MediaPlayer()
-        player = next
-        next.setAudioAttributes(attributes)
-        next.setDataSource(file.absolutePath)
-        next.setOnPreparedListener { if (player === it) it.start() }
-        next.setOnCompletionListener {
-            if (player === it) {
-                stop()
-                onFinished()
+        try {
+            val file = File.createTempFile("kitty-voice-", extension, context.cacheDir)
+            audioFile = file
+            file.writeBytes(Base64.decode(audio.data, Base64.DEFAULT))
+            val next = MediaPlayer()
+            player = next
+            next.setAudioAttributes(attributes)
+            next.setDataSource(file.absolutePath)
+            next.setOnPreparedListener { if (player === it) it.start() }
+            next.setOnCompletionListener {
+                if (player === it) {
+                    stop()
+                    onFinished()
+                }
             }
-        }
-        next.setOnErrorListener { failed, _, _ ->
-            if (player === failed) {
-                stop()
-                onFinished()
+            next.setOnErrorListener { failed, _, _ ->
+                if (player === failed) {
+                    stop()
+                    onError("Voice audio could not play. Try the device voice in Settings.")
+                }
+                true
             }
-            true
+            next.prepareAsync()
+        } catch (error: Exception) {
+            stop()
+            throw error
         }
-        next.prepareAsync()
     }
 }

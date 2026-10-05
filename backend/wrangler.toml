@@ -5,7 +5,7 @@ workers_dev = true
 
 [vars]
 FIREBASE_PROJECT_ID = "kittyai-f743c"
-OWNER_EMAIL = "viratanand1221@gmail.com"
+OWNER_EMAIL = "owner@example.com"
 RELEASE_REPOSITORY = "psychspy7/KITTY.AI-v2"
 GOOGLE_WEB_CLIENT_ID = "34203306703-u82o8grcs0qr2j30dgsf84bue2v7is22.apps.googleusercontent.com"
 

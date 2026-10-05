@@ -1,6 +1,22 @@
 import { ApiError, type Message, type Provider, type Env } from "./types";
 import { unseal } from "./vault";
 export const CLOUDFLARE_MODELS = ["@cf/meta/llama-3.1-8b-instruct-fp8"] as const;
+export const CLOUDFLARE_SPEECH = "@cf/myshell-ai/melotts";
+export const FISH_MODELS = ["s2.1-pro-free", "s2.1-pro", "s2-pro", "s1", "drama-3-preview"];
+export function providerHttpError(kind: string, status: number): ApiError {
+  const name = {groq:"Groq", gemini:"Gemini", cloudflare:"Cloudflare", elevenlabs:"ElevenLabs", fish:"Fish Audio"}[kind] || "Provider";
+  if (status === 429) return new ApiError(429, `${name} rate limit reached. Wait and retry, or select the free Cloudflare provider.`);
+  if (status === 401 || status === 403) return new ApiError(502, `${name} rejected the API key or account permissions. Test this provider in the owner console.`);
+  if (status === 402) return new ApiError(502, `${name} needs available credits. Choose a free model or check the account balance.`);
+  if (status === 400 || status === 404) return new ApiError(502, `${name} rejected the model or voice settings. Test the configuration in the owner console.`);
+  return new ApiError(502, `${name} is unavailable (HTTP ${status}). Try again later.`);
+}
+export function safeProviderError(error: unknown, kind: string): ApiError {
+  if (error instanceof ApiError) return error;
+  if (error instanceof DOMException && error.name === "OperationError")
+    return new ApiError(503, "The saved provider key could not be decrypted. Re-enter it in the owner console; preserve the vault key.");
+  return new ApiError(502, `${kind} could not finish the request. Run Test in the owner console to check this provider.`);
+}
 export function isGroqChatModel(id: string) {
   return !/whisper|orpheus|playai|tts|speech|embed/i.test(id);
 }
@@ -28,6 +44,8 @@ export async function* sseData(
   const reader = stream.getReader(),
     decoder = new TextDecoder();
   let buffer = "";
+  let lines: string[] = [];
+  let frameSize=0;
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -36,10 +54,12 @@ export async function* sseData(
       while ((end = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, end).replace(/\r$/, "");
         buffer = buffer.slice(end + 1);
-        if (line.startsWith("data:")) yield line.slice(5).trimStart();
+        if (line.startsWith("data:")) { frameSize+=line.length; if(frameSize>262144)throw new ApiError(502,"Provider sent an oversized stream event."); lines.push(line.slice(5).replace(/^ /, "")); }
+        if (line === "" && lines.length) { yield lines.join("\n"); lines = []; frameSize=0; }
       }
       if (done) {
-        if (buffer.startsWith("data:")) yield buffer.slice(5).trim();
+        if (buffer.startsWith("data:")) lines.push(buffer.slice(5).replace(/^ /, ""));
+        if (lines.length) yield lines.join("\n");
         break;
       }
       if (buffer.length > 262144)
@@ -91,7 +111,7 @@ export async function* chat(
       }),
       signal,
     });
-  } else {
+  } else if (provider.kind === "gemini") {
     const key = await unseal(provider.encrypted_key, env.VAULT_KEY, provider.id);
     const system = messages
       .filter((m) => m.role === "system")
@@ -115,30 +135,32 @@ export async function* chat(
         signal,
       },
     );
-  }
+  } else throw new ApiError(400, "This provider supports speech, not chat.");
   if (!response.ok || !response.body) {
     await response.body?.cancel();
-    throw new ApiError(502, `Provider unavailable (HTTP ${response.status}).`);
+    throw providerHttpError(provider.kind, response.status);
   }
   let complete = false;
+  let visible = false;
   for await (const data of sseData(response.body)) {
     if (data === "[DONE]") {
       complete = true;
       break;
     }
-    const event = JSON.parse(data);
+    let event: any;
+    try { event = JSON.parse(data); } catch { throw new ApiError(502, "Provider sent an invalid stream. Test this model in the owner console."); }
     if (event.error) throw new ApiError(502, "Provider interrupted the reply.");
     if (provider.kind === "cloudflare") {
-      if (event.response) yield event.response;
+      if (typeof event.response === "string" && event.response) { visible = true; yield event.response; }
     } else if (provider.kind === "groq") {
       const choice = event.choices?.[0];
       const value = choice?.delta?.content;
-      if (value) yield value;
+      if (typeof value === "string" && value) { visible = true; yield value; }
       if (choice?.finish_reason) complete = true;
     } else {
       const candidate = event.candidates?.[0];
       for (const part of candidate?.content?.parts || [])
-        if (part.text && !part.thought) yield part.text;
+        if (typeof part.text === "string" && part.text && !part.thought) { visible = true; yield part.text; }
       if (candidate?.finishReason) complete = true;
     }
   }
@@ -147,6 +169,25 @@ export async function* chat(
       502,
       "Provider stream ended early. Retry after reconnecting.",
     );
+  if (!visible) throw new ApiError(502, "The model returned no visible answer. Reasoning can exhaust the token budget; increase output tokens or choose Cloudflare or a non-reasoning Groq model.");
+}
+const MAX_AUDIO = 4 * 1024 * 1024;
+function encodeBytes(bytes: Uint8Array) {
+  let value = "";
+  for (let i=0; i<bytes.length; i+=8192) value += String.fromCharCode(...bytes.subarray(i,i+8192));
+  return btoa(value);
+}
+async function binaryAudio(response: Response, kind: string): Promise<{data:string;mimeType:string}> {
+  if (!response.ok) { await response.body?.cancel(); throw providerHttpError(kind, response.status); }
+  if (!response.body) throw new ApiError(502, "Speech returned no audio.");
+  const reader=response.body.getReader(), chunks:Uint8Array[]=[]; let size=0;
+  try { while(true) { const {done,value}=await reader.read(); if(done)break; size+=value.length; if(size>MAX_AUDIO)throw new ApiError(502,"Speech is too long. Ask for a shorter reply."); chunks.push(value); } }
+  finally { await reader.cancel().catch(()=>{}); reader.releaseLock(); }
+  const bytes=new Uint8Array(size); let offset=0; for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
+  const wav=bytes.length>=12 && new TextDecoder().decode(bytes.subarray(0,4))==="RIFF" && new TextDecoder().decode(bytes.subarray(8,12))==="WAVE";
+  const mp3=bytes.length>=3 && (new TextDecoder().decode(bytes.subarray(0,3))==="ID3" || (bytes[0]===255 && (bytes[1]&224)===224));
+  if(!wav&&!mp3)throw new ApiError(502,"Speech returned an unsupported audio response.");
+  return {data:encodeBytes(bytes),mimeType:wav?"audio/wav":"audio/mpeg"};
 }
 export async function speech(
   provider: Provider,
@@ -156,9 +197,28 @@ export async function speech(
   voice: string,
   signal: AbortSignal,
 ): Promise<{ data: string; mimeType: string }> {
-  if (provider.kind !== "gemini")
-    throw new ApiError(400, "Speech requires a Gemini provider.");
+  if(provider.kind === "cloudflare") {
+    if(!env.AI || model !== CLOUDFLARE_SPEECH)throw new ApiError(400,"Choose the supported Cloudflare MeloTTS speech model.");
+    if(!["en","fr","es","zh","ja","ko"].includes(voice))throw new ApiError(400,"For MeloTTS, enter a language code: en, fr, es, zh, ja or ko.");
+    const audio=await env.AI.run(CLOUDFLARE_SPEECH,{prompt:text,lang:voice},{signal});
+    if(audio instanceof ReadableStream || audio instanceof ArrayBuffer || ArrayBuffer.isView(audio)) return binaryAudio(new Response(audio as BodyInit),provider.kind);
+    if(audio && typeof audio === "object" && "audio" in audio && typeof audio.audio === "string") {
+      if(audio.audio.length>MAX_AUDIO*1.4)throw new ApiError(502,"Speech is too long. Ask for a shorter reply.");
+      return binaryAudio(new Response(Uint8Array.from(atob(audio.audio), c=>c.charCodeAt(0))),provider.kind);
+    }
+    throw new ApiError(502,"Cloudflare returned no supported speech audio.");
+  }
+  if(provider.kind === "groq")throw new ApiError(400,"Select Gemini, Cloudflare, ElevenLabs or Fish Audio for speech.");
   const key = await unseal(provider.encrypted_key, env.VAULT_KEY, provider.id);
+  if(provider.kind === "elevenlabs") {
+    if(!/^[a-zA-Z0-9_-]{1,80}$/.test(voice))throw new ApiError(400,"Enter an ElevenLabs voice ID.");
+    return binaryAudio(await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voice)}?output_format=mp3_44100_128`,{method:"POST",headers:{"xi-api-key":key,"Content-Type":"application/json"},body:JSON.stringify({text,model_id:model}),signal}),provider.kind);
+  }
+  if(provider.kind === "fish") {
+    if(!FISH_MODELS.includes(model))throw new ApiError(400,"Choose an exact supported Fish model. Use s2.1-pro-free for free testing.");
+    if(!/^[a-zA-Z0-9_-]{1,80}$/.test(voice))throw new ApiError(400,"Enter a Fish Audio voice reference ID.");
+    return binaryAudio(await fetch("https://api.fish.audio/v1/tts",{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json",model},body:JSON.stringify({text,reference_id:voice,format:"mp3",latency:"normal"}),signal}),provider.kind);
+  }
   const response = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/interactions",
     {
@@ -192,7 +252,7 @@ export async function speech(
   );
   if (!response.ok) {
     await response.body?.cancel();
-    throw new ApiError(502, "Speech is unavailable. Try again later.");
+    throw providerHttpError(provider.kind, response.status);
   }
   const data = (await response.json()) as {
     steps?: {
@@ -205,7 +265,7 @@ export async function speech(
     .flatMap((s) => s.content || [])
     .filter((c) => c.type === "audio" && c.data)
     .at(-1);
-  if (!audio?.data || (audio.mime_type && audio.mime_type !== "audio/wav"))
+  if (!audio?.data || audio.data.length>MAX_AUDIO*1.4 || (audio.mime_type && audio.mime_type !== "audio/wav"))
     throw new ApiError(502, "Unsupported speech response.");
   return { data: audio.data, mimeType: "audio/wav" };
 }

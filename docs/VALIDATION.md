@@ -1,46 +1,49 @@
-# KITTY AI validation report
+# KITTY AI v1.5 validation report
 
-Validation date: **5 October 2026**. Release **1.0.3 / versionCode 4**.
+Validation: **5 October 2026 (UTC)**. Release **1.5.0 / versionCode 5**.
 
-## Findings and changes
+## What changed and what is established
 
-The previous login handler could silently swallow a Credential Manager cancellation, leaving the same login page. The new handler displays persistent errors and Firebase error codes, and waits until the activity resumes before exchanging native Google credentials. Login attempts are serialized; the initial null Firebase listener no longer resets an active attempt.
+The phone reported Groq requests failing with “Reply interrupted” and no visible answer. Recent request metadata confirmed failed replies with zero response text. The saved Groq key completed a synthetic request through an isolated local instance of KITTY’s backend using the real API; this did not establish the original production failure’s cause.
 
-A secure browser option uses the existing Firebase project's first-party Hosting domain. Its single-use handoff expires after ten minutes, encrypts the Google credential in D1, requires an app-private PKCE proof, and checks the resulting Firebase UID. Polling pauses behind the browser and resumes when KITTY returns. Tokens are never in the return link. The emulator exposed background DNS failures; the observed foreground resume did not repeat that error. The original phone's exception was not captured, so these findings do not establish its exact cause.
+Streaming now parses complete SSE frames, emits keepalive events, distinguishes empty/truncated replies, preserves safe provider errors and stops the Android reader immediately at KITTY’s done event. Fallback occurs before visible text. The owner console now tests a real short chat/audio request before saving and can test the full deployed chat/database route; failed tests do not overwrite keys.
 
-The live groq-main provider was configured with **canopylabs/orpheus-v1-english**, a speech model. It now uses **openai/gpt-oss-120b**, preserving the encrypted key. Live model lookup and a synthetic streamed answer returned HTTP 200 and [DONE]. The free Cloudflare fallback also returned a finished live synthetic stream. These are provider tests, not a complete authenticated Android chat test.
+A rollout error was found and corrected: the settings validator initially rejected Cloudflare speech’s @cf/ prefix. It blocked the console and chat before inference. A regression now loads those speech settings and completes chat. **The owner subsequently confirmed the deployed chat-route test passes**, with D1 recording Cloudflare success in 537 ms of provider time. This explains the rollout’s Invalid input failure; it does not retrospectively prove the original Groq error’s cause.
 
-## Verified checks
+Cloudflare free chat is primary, with Groq retained as fallback. Real Cloudflare inference returned completed SSE replies and WAV speech (149,862 and 150,886-byte synthetic samples) using the saved KITTY configuration. These provider probes used synthetic identities locally, without reading user conversations.
+
+The Android UI uses a compact header/menu and charcoal chat layout. Send dismisses the keyboard. Home and Settings link “Made by Kitty Corp” to the supplied site. Android device speech is the default; optional cloud speech handles WAV/MP3 for Cloudflare, Gemini, ElevenLabs and Fish Audio. Dictation delegates to the phone’s foreground recognition service.
+
+## Final verified checks
 
 | Check | Result |
 |---|---|
-| Firebase | Project/app/package/Web OAuth client match; Google provider enabled, release/debug certificates registered, both deployed origins accepted by a public configuration request (HTTP 200). |
-| Owner | Exact Google-linked UID WCppLHxijDcNqVTxAQkONUrApFm1 and exact verified owner email required by the backend; OWNER_UID remains a secret. |
-| TypeScript | Backend/admin checks pass. |
-| Backend tests | **33 pass** using real local Miniflare D1. Identities/provider responses simulated; JWT cases use generated RSA signatures. |
-| Deployment | Worker, D1 migrations 0001/0002, AI binding, console, APK and static Firebase login Hosting deployed. |
-| Providers | Saved Groq key: models and finished synthetic stream pass. Cloudflare: finished synthetic stream passes. No credential printed. |
-| Android build | assembleRelease, testReleaseUnitTest, lintRelease pass. Java 17, Gradle 8.13, AGP 8.13.2, Kotlin 2.3.20; min API 26, target/compile 35. |
-| Android tests | **13 pass**, zero failures/errors/skips: history merge, PKCE RFC vector/proof generation, SHA-256, trusted URLs, update metadata and package/version/certificate rules. |
-| Lint | **0 errors, 24 warnings**, retained: dependency/SDK currency, style and resource suggestions. |
-| Signature | apksigner verifies preserved RSA 3072-bit owner key. SHA-256 certificate: 047129a730f0686d4f83f1d89d690811f5d7f91e09cd283cb9fdfff0a14661d1. |
-| APK | com.kitty.ai, code 4, name 1.0.3; **3,542,551 bytes**. |
-| Download | HTTP 200, APK MIME, byte-for-byte equality with local signed APK. SHA-256: f7873810db3140734e8e92b87e2e8ae0b72945a71eb21cd30baeb36a174864fb. |
-| Permissions | INTERNET, explicit-update REQUEST_INSTALL_PACKAGES, ACCESS_NETWORK_STATE, Google READ_GSERVICES and app-specific receiver permission. No microphone, contacts, SMS, phone, accessibility or broad storage permission. |
-| Emulator | Release 1.0.3 installed/cold-launched on Android 15/API 35. Login and persistent Google cancellation captured in evidence/release-1.0.3-*.png/xml; no KITTY crash recorded. Browser handoff resumes after foreground return and process restart, then explicit cancellation restores the login buttons. |
+| Backend / admin TypeScript | Pass. |
+| Backend regressions | **45 pass** with real Miniflare D1 and simulated identities/provider responses; JWT tests use generated signed tokens. |
+| New backend coverage | Pre-save testing, exact-owner protection, encrypted replacement keys, failed-key preservation, no upstream secret echo, complete route cleanup, rate-limit metadata, multiline UTF-8 SSE, reasoning-only empty output, ElevenLabs/Fish request formats, exact Fish free-model spelling, Cloudflare speech configuration. |
+| Production | Worker/console/API/D1/AI deployed; full route owner-confirmed pass with recorded live Cloudflare success. |
+| Provider live probes | Saved Groq completed a synthetic local-backend request with the real API. Cloudflare chat and speech real API probes passed. |
+| Android release | assembleRelease, testReleaseUnitTest and lintRelease pass after correcting compilation/formatting findings. Java 17 / Gradle 8.13 / AGP 8.13.2 / Kotlin 2.3.20; API 26 minimum, target 35. |
+| Android unit tests | **17 pass**, zero failures/errors/skips. Includes history merge, login proof, update URLs/checksums/package/version/certificates and SSE boundaries/heartbeats/size limits. |
+| Lint | **0 errors, 24 warnings** retained for SDK/dependency currency, resources/style suggestions. |
+| Signature | apksigner verifies the existing owner certificate: **047129a730f0686d4f83f1d89d690811f5d7f91e09cd283cb9fdfff0a14661d1**. |
+| APK | com.kitty.ai / code 5 / 1.5.0, **3,558,991 bytes**. |
+| Public download | HTTP 200, APK MIME, exact SHA-256 **17f60be8f3a771f1e84bd10c537c5870e3b9e57f07caed756c2ff44096ceb7db**. |
+| Permissions | INTERNET, explicit-update REQUEST_INSTALL_PACKAGES, network state, Google READ_GSERVICES and app-specific receiver permission. No microphone, phone-control, accessibility, contacts, SMS, call-log or broad storage permission. |
+| Manifest / test separation | TTS service discovery declared. The debug-only UiPreviewActivity and fixture audio are absent from the owner release. |
+| Release emulator | Signed APK successfully updates the previous owner release on Android 15/API 35 and cold-launches; login screenshot/XML captured. No KITTY crash recorded at this check. |
+| Debug UI/audio fixture | Same composer dismisses the keyboard: mInputShown true before Send, false afterward. Device voice and a real Cloudflare WAV each reach playback completion on Android 15; Stop returns Audio stopped. This headless emulator has audio output disabled; listening quality is not established. |
+| Phone v1.5 | Owner confirmed completed reply and keyboard dismissal. |
+| Update publication | v1.5 metadata/checksum published after download verification. |
 
-## Scope and remaining acceptance
+## Device acceptance and limits
 
-Backend tests cover exact owner identity, unset UID, Google/verified email requirements, token audience/issuer/expiry, encrypted/masked keys, user separation, UTF-8 streaming, idempotency, conflicting requests, quotas, cancellation, fallback before visible text, partial replies, consent withdrawal and selected examples. New cases cover PKCE, browser expiry/cancel/replay, simultaneous one-time consumption, anonymous limits, Google JWT verification, narrow Firebase CORS, redirects, Cloudflare context/cancellation and rejection of speech models for Groq chat.
+**The owner reports that v1.5 finishes a chat reply and closes the keyboard after sending.** This is phone acceptance reported in chat, without an instrumented phone trace. Google login reaching chat in 1.0.3 and the v1.5 deployed route passing are also user-reported. Speech, two-account switching and the full download → permission → installer flow still need phone acceptance. A successful ADB update verifies package/signature compatibility, not the full in-app installer flow.
 
-**The owner confirmed that release 1.0.3 reaches the chat screen after Google sign-in on the phone.** This is user-reported acceptance, without an instrumented phone trace; the native/browser route was not specified. An actual completed Android chat reply still needs confirmation. The test browser returned Firebase auth/network-request-failed before opening Google; separate HTTPS configuration checks accepted both deployed origins. That browser failure is recorded separately from the successful phone report.
+Emulator UI/audio fixtures are separate debug code, with synthetic display data and no Firebase sign-in/backend chat. They exercise the same chat composer/layout and playback classes. Fixture results do not establish authenticated phone chat. Evidence includes release login and debug chat/audio screenshots/XML under docs/evidence. An unrelated Digital Wellbeing system ANR was dismissed during the run; it was not a KITTY ANR.
 
-Gemini speech tests simulate the documented API; no live Gemini key/audio test was completed. Direct Cloudflare inference plus adapter tests do not establish a production Groq-failure-to-Cloudflare transition. Real two-account switching during streaming, speech replacement/background behavior, notices and consent review still need device acceptance.
+ElevenLabs/Fish API contract tests simulate provider audio responses; no live keys were supplied and no live voice-quality/credit test is claimed. Gemini speech remains contract-tested only. Device speech depends on an installed Android engine/language voice. Cloudflare’s free chat/speech budget is shared and finite. The Windows emulator is not a phone performance benchmark.
 
-The updater verifies SHA-256, package, increasing version and exact certificate, with bounded private downloads and cancellation. Trusted sources are the pinned KITTY APK path and owner's GitHub Releases. Release 1.0.3 metadata is published. A complete signed-in download → Android permission prompt → installation flow remains unverified. Android confirms installation; no silent update is claimed.
+Core editing is protected by backend identity checks; model prompt obedience is not an authorization boundary. History/memories remain per user. Examples require opt-in consent and individual sharing; saved chats do not fine-tune a model. Announcements are in-app, without background push. Android confirms APK installation; silent updating is not claimed.
 
-The slow Windows-hosted emulator is not a phone performance benchmark. Initial OS startup problems and an earlier cache-permission build failure are not counted as passed app checks.
-
-Announcements are in-app Inbox messages, not background push. Saved conversations/selected consented examples do not fine-tune a model. Backend authorization protects prompt editing; model obedience is not a security boundary.
-
-The existing permanent owner key is preserved in .tooling/signing/kitty-owner.jks. Its DPAPI password/private recovery file are excluded from Git/source archives. Back them up privately. Update over previous owner releases to preserve local data. A debug-signed APK requires a separate migration because Android rejects a different certificate; do not uninstall an owner release unnecessarily.
+The permanent owner key, local vault key, CLI sessions and passwords remain private and excluded from Git/source archives. Preserve the signing and vault keys when releasing future updates.
