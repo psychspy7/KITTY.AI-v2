@@ -16,8 +16,29 @@ if($Release){
 }
 $arguments=@('-p','android','--no-daemon',"-Duser.home=$taskRoot/.tooling/java-user","-PkittyVersionCode=$VersionCode","-PkittyVersionName=$VersionName") + $taskNames
 if($BackendUrl){$arguments += "-PkittyBackendUrl=$BackendUrl"}
-& $gradle @arguments
-if($LASTEXITCODE -ne 0){throw 'Android build or checks failed'}
+$protectedPassword = Join-Path $taskRoot '.tooling/signing/password.dpapi'
+$signingPointer = [IntPtr]::Zero
+$signingSecure = $null
+try {
+  if($Release -and (Test-Path -LiteralPath $protectedPassword)) {
+    try { $signingSecure = ConvertTo-SecureString -String (Get-Content -LiteralPath $protectedPassword -Raw).Trim() }
+    catch {
+      $recovery = Join-Path $taskRoot '.tooling/signing/recovery-password.txt'
+      if (!(Test-Path -LiteralPath $recovery)) { throw 'This Windows account cannot unlock the signing password. Restore your private signing backup.' }
+      $signingSecure = ConvertTo-SecureString -String (Get-Content -LiteralPath $recovery -Raw).Trim() -AsPlainText -Force
+    }
+    $signingPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($signingSecure)
+    $env:KITTY_RELEASE_STORE_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($signingPointer)
+    $env:KITTY_RELEASE_KEY_PASSWORD = $env:KITTY_RELEASE_STORE_PASSWORD
+  }
+  & $gradle @arguments
+  if($LASTEXITCODE -ne 0){throw 'Android build or checks failed'}
+} finally {
+  if($signingPointer -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($signingPointer) }
+  if($signingSecure) { $signingSecure.Dispose() }
+  Remove-Item Env:KITTY_RELEASE_STORE_PASSWORD -ErrorAction SilentlyContinue
+  Remove-Item Env:KITTY_RELEASE_KEY_PASSWORD -ErrorAction SilentlyContinue
+}
 New-Item -ItemType Directory -Force -Path artifacts | Out-Null
 if($Release){Copy-Item -LiteralPath 'android/app/build/outputs/apk/release/app-release.apk' -Destination "artifacts/KITTY-AI-$VersionName.apk"}else{Copy-Item -LiteralPath 'android/app/build/outputs/apk/debug/app-debug.apk' -Destination 'artifacts/KITTY-AI-setup-debug.apk'}
 

@@ -394,6 +394,8 @@ export async function route(
       return json(await getConfig(env));
     if (path === "/api/admin/config" && method === "PUT") {
       const config = configSchema.parse(await body(request));
+      if (config.release.url && !config.release.sha256)
+        throw new ApiError(400, "Publish the APK SHA-256 checksum with its update URL.");
       if (
         config.release.url &&
         !trustedRelease(config.release.url, env.RELEASE_REPOSITORY)
@@ -764,10 +766,12 @@ export function trustedRelease(value: string, repo: string) {
     return (
       url.protocol === "https:" &&
       url.hostname === "github.com" &&
+      !url.port &&
       !url.username &&
       !url.password &&
-      url.pathname.startsWith(`/${repo}/releases/download/`) &&
-      url.pathname.endsWith(".apk")
+      !url.search &&
+      !url.hash &&
+      new RegExp(`^/${repo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/releases/download/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*\\.apk$`).test(url.pathname)
     );
   } catch {
     return false;

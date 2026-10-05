@@ -6,6 +6,8 @@ The complete source includes the Android app, Cloudflare Worker API, D1 migratio
 
 **Start with [the beginner guide](docs/BEGINNER-GUIDE.md).** Read [the validation report](docs/VALIDATION.md) before treating a build as production-ready. This project does not embed provider keys in the Android app.
 
+[Download KITTY AI 1.0.1](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.1.apk) · [Owner console](https://kitty-ai-v2.kitty-ai.workers.dev) · [Deployment status](docs/DEPLOYMENT.md). The signed release is connected to the deployed backend. Firebase Google login, authorized domain, release fingerprints and exact owner UID are configured. Provider keys are intentionally left for the owner to add later; chat remains paused until then.
+
 ## Architecture
 
 ```mermaid

@@ -1,0 +1,9 @@
+KITTY AI permanent release signing certificate, created 2026-10-05.
+Package: com.kitty.ai
+Alias: kitty
+SHA-1: E3:59:28:B8:53:A8:82:96:45:0C:3C:E2:CC:87:9F:4D:9A:6A:48:36
+SHA-256: 04:71:29:A7:30:F0:68:6D:4F:83:F1:D8:9D:69:08:11:F5:D7:F9:1E:09:CD:28:3C:B9:FD:FF:F0:A1:46:61:D1
+The certificate fingerprints are public. The private key and password are excluded from source archives and GitHub.
+Preserve the same .tooling/signing/kitty-owner.jks for every future release.
+Back up .tooling/signing/recovery-password.txt privately so your key remains usable on another Windows account or computer.
+Never paste private keys or passwords into chat.

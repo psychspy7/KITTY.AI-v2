@@ -37,6 +37,7 @@ data class UpdateInfo(
     val versionCode: Int = 1,
     val versionName: String = "1.0.0",
     val url: String = "",
+    val sha256: String = "",
     val notes: String = "",
 )
 

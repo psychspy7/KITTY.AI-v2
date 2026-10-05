@@ -2,6 +2,8 @@
 
 KITTY is created by **Virat with the help of Kitty Corp**. This guide connects the source to your own accounts. You own the source, Firebase project, Cloudflare database and APK signing key.
 
+**Already deployed:** [KITTY owner console](https://kitty-ai-v2.kitty-ai.workers.dev) and [signed KITTY 1.0.1 APK](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.0.1.apk). Google sign-in, the authorized domain, D1, release fingerprints and exact owner UID are configured. Provider setup is deferred at the owner's request. The infrastructure steps below document setup from scratch; do not recreate the existing database or replace the preserved signing/vault keys.
+
 ## 1. What runs where
 
 | Part | Purpose | Account |
@@ -151,6 +153,8 @@ Before announcing a public release, test two Google accounts: verify separate hi
 
 ## 9. Preserve or create your release signing key
 
+The delivered release already has a permanent owner key at `.tooling/signing/kitty-owner.jks`. Keep it. `scripts/build-android.ps1` unlocks its Windows DPAPI password locally, with a private `recovery-password.txt` fallback for another Windows account. Back up the key, recovery password and `android/keystore.properties` privately; the recovery password file contains a secret. These files are excluded from Git and source ZIPs. Public certificate fingerprints are in `OWNER-SIGNING.txt`. Never replace the key after distributing a release. The commands below apply only to a new setup that has no existing key.
+
 If you already have a KITTY release key, preserve and use it. An APK signed with another key cannot update an installed APK with the old signature.
 
 If you have no release key, create one locally using Java’s keytool. It prompts in your terminal; never send its passwords or private key through chat:
@@ -172,11 +176,11 @@ Release builds fail if a real backend URL or owner signing configuration is miss
 
 1. Keep the same package name, Firebase project and signing key. Increase versionCode for every published build.
 2. Build and test the APK with your owner key. Run `npm run check`, `npm test`, `npm run build`, and the Android build checks.
-3. Create a GitHub Release in `psychspy7/KITTY.AI-v2`, tag it (for example `v1.0.1`), and attach the signed APK.
-4. Copy its direct download link. It must look like `https://github.com/psychspy7/KITTY.AI-v2/releases/download/v1.0.1/KITTY-AI-1.0.1.apk`.
-5. In the owner console’s **Updates** page, enter versionCode, versionName, that URL and release notes. Publish a notice in **Announcements** if useful.
+3. Build the next release with versionCode **3 or higher**, for example `./scripts/build-android.ps1 -Release -BackendUrl 'https://kitty-ai-v2.kitty-ai.workers.dev' -VersionCode 3 -VersionName '1.0.2'`.
+4. Create a GitHub Release in `psychspy7/KITTY.AI-v2`, tag it (for example `v1.0.2`), and attach the signed APK. Copy its direct download link, such as `https://github.com/psychspy7/KITTY.AI-v2/releases/download/v1.0.2/KITTY-AI-1.0.2.apk`.
+5. Run `Get-FileHash artifacts/KITTY-AI-1.0.2.apk -Algorithm SHA256`. In the owner console’s **Updates** page, enter versionCode, versionName, the direct URL, the 64-character SHA-256 checksum and release notes. Publish a notice in **Announcements** if useful.
 
-Users choose **Settings → Check for updates**. KITTY checks the owner’s authenticated update information, restricts downloads to this repository’s GitHub Releases, and opens the link for the user. Android checks signing continuity when installing. There is no silent APK installer or permission to install packages automatically.
+Users choose **Settings → Check for updates → Download update**. KITTY downloads into private app storage, shows progress, supports cancellation/retry, accepts only this repository's GitHub release URLs and trusted GitHub asset redirects, and checks the APK's SHA-256, package, increasing versionCode and exact signing certificate. A verified download survives app restart. Tap **Install**. On the first update Android may ask to allow installations from KITTY; return and tap Install again. Android always asks for installation confirmation. `REQUEST_INSTALL_PACKAGES` exists solely for this explicit updater; there is no storage permission or silent installation. See [Android installation permission](https://developer.android.com/reference/android/content/pm/PackageManager#canRequestPackageInstalls()) and [FileProvider](https://developer.android.com/reference/androidx/core/content/FileProvider).
 
 Announcements are **in-app Inbox messages**. They are fetched during account sync, not delivered as background push notifications. No FCM notification permission is included in this release.
 

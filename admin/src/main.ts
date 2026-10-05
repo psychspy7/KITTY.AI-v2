@@ -233,13 +233,14 @@ async function load() {
         "The next chapter.",
         "Publish owner-signed APKs through psychspy7/KITTY.AI-v2 GitHub Releases.",
       ) +
-        `<article><form id="release">${field("Version code (must increase)", "version-code", config.release.versionCode, "number")}${field("Version name", "version-name", config.release.versionName)}${field("Direct GitHub Release APK URL", "url", config.release.url)}<label>Release notes<textarea id="notes" rows="5">${escape(config.release.notes)}</textarea></label><button type="submit" class="primary">Publish update information</button></form><p>Android verifies signing continuity when a downloaded update is installed.</p></article>`,
+        `<article><form id="release">${field("Version code (must increase)", "version-code", config.release.versionCode, "number")}${field("Version name", "version-name", config.release.versionName)}${field("Direct GitHub Release APK URL", "url", config.release.url)}${field("APK SHA-256 checksum", "sha256", config.release.sha256 || "")}<label>Release notes<textarea id="notes" rows="5">${escape(config.release.notes)}</textarea></label><button type="submit" class="primary">Publish update information</button></form><p>Android verifies signing continuity when a downloaded update is installed.</p></article>`,
     );
     submit("release", async () => {
       config.release = {
         versionCode: Number(value("version-code")),
         versionName: value("version-name"),
         url: value("url"),
+        sha256: value("sha256").trim().toLowerCase(),
         notes: value("notes"),
       };
       await saveConfig();

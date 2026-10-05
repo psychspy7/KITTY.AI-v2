@@ -1,8 +1,6 @@
 package com.kitty.ai.ui
 
 import android.app.Activity
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -57,6 +55,7 @@ private val KittyColors =
 @Composable
 fun KittyApp(vm: KittyViewModel, activity: Activity) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val download by vm.updater.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -100,7 +99,9 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
         }
         state.update?.let { update ->
             val newer = update.versionCode > BuildConfig.VERSION_CODE
-            val published = TrustedUpdates.allowed(update.url)
+            val published =
+                TrustedUpdates.allowed(update.url) &&
+                    Regex("[a-fA-F0-9]{64}").matches(update.sha256)
             AlertDialog(
                 onDismissRequest = vm::dismissUpdate,
                 title = {
@@ -117,21 +118,78 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
                     )
                 },
                 confirmButton = {
-                    if (newer && TrustedUpdates.allowed(update.url))
+                    if (newer && published)
                         TextButton(
                             onClick = {
-                                activity.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(update.url))
-                                )
+                                vm.updater.download(update)
                                 vm.dismissUpdate()
                             }
                         ) {
-                            Text("Get update")
+                            Text("Download update")
                         }
                     else TextButton(onClick = vm::dismissUpdate) { Text("Done") }
                 },
                 dismissButton = {
                     if (newer) TextButton(onClick = vm::dismissUpdate) { Text("Later") }
+                },
+            )
+        }
+        if (download.phase != "idle") {
+            AlertDialog(
+                onDismissRequest = { if (download.phase != "downloading") vm.updater.dismiss() },
+                title = {
+                    Text(
+                        when (download.phase) {
+                            "downloading" -> "Downloading KITTY"
+                            "ready" -> "Update ready"
+                            else -> "Update needs attention"
+                        }
+                    )
+                },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        when (download.phase) {
+                            "downloading" -> {
+                                Text(
+                                    "You can cancel at any time. KITTY checks the APK before installation."
+                                )
+                                download.progress?.let {
+                                    LinearProgressIndicator(
+                                        progress = { it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                } ?: LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                                download.progress?.let { Text("${(it * 100).toInt()}%") }
+                            }
+                            "ready" ->
+                                Text(
+                                    if (download.permissionRequired)
+                                        "Allow updates from KITTY in Android settings, return here and tap Install. Android will ask you to confirm."
+                                    else
+                                        "KITTY ${download.info?.versionName} is verified and ready. Android will ask you to confirm installation."
+                                )
+                            else -> Text(download.error ?: "Please try again.")
+                        }
+                    }
+                },
+                confirmButton = {
+                    when (download.phase) {
+                        "downloading" -> TextButton(onClick = vm.updater::cancel) { Text("Cancel") }
+                        "ready" ->
+                            TextButton(onClick = { vm.updater.install(activity) }) {
+                                Text("Install")
+                            }
+                        else ->
+                            download.info?.let { info ->
+                                TextButton(onClick = { vm.updater.download(info) }) {
+                                    Text("Retry")
+                                }
+                            }
+                    }
+                },
+                dismissButton = {
+                    if (download.phase != "downloading")
+                        TextButton(onClick = vm.updater::dismiss) { Text("Later") }
                 },
             )
         }

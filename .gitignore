@@ -13,5 +13,6 @@
 **/*.keystore
 android/app/google-services.json
 artifacts/
+admin/public/downloads/
 assets/brand/kitty-icon-master.png
 *.log

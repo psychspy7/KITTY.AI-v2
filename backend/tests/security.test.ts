@@ -412,6 +412,10 @@ describe("streaming reliability, consent and limits", () => {
     expect(await (await request(owner, "admin/examples")).json()).toEqual([]);
   });
   it("rejects untrusted update sources", () => {
+    const valid = "https://github.com/psychspy7/KITTY.AI-v2/releases/download/v1/kitty.apk";
+    for (const invalid of [valid + "?download=1", valid + "#fragment", valid.replace("v1/kitty", "v1/extra/kitty"), valid.replace("github.com", "github.com:8443"), valid.replace("KITTY.AI-v2", "KITTYxAI-v2")]) {
+      expect(trustedRelease(invalid, env.RELEASE_REPOSITORY)).toBe(false);
+    }
     expect(
       trustedRelease(
         "https://github.com/psychspy7/KITTY.AI-v2/releases/download/v1/kitty.apk",
@@ -430,6 +434,13 @@ describe("streaming reliability, consent and limits", () => {
         env.RELEASE_REPOSITORY,
       ),
     ).toBe(false);
+  });
+  it("requires a valid APK checksum when publishing an update", async () => {
+    const release = { versionCode: 3, versionName: "1.0.2", url: "https://github.com/psychspy7/KITTY.AI-v2/releases/download/v1.0.2/kitty.apk", sha256: "", notes: "Update" };
+    await expect(request(owner, "admin/config", "PUT", { ...DEFAULT_CONFIG, release })).rejects.toThrow("SHA-256");
+    await expect(request(owner, "admin/config", "PUT", { ...DEFAULT_CONFIG, release: { ...release, sha256: "z".repeat(64) } })).rejects.toThrow();
+    expect((await request(owner, "admin/config", "PUT", { ...DEFAULT_CONFIG, release: { ...release, sha256: "a".repeat(64) } })).status).toBe(200);
+    expect(await (await request(alice, "update")).json()).toMatchObject({ sha256: "a".repeat(64), versionCode: 3 });
   });
   it("falls back only before any visible text", async () => {
     await ready();

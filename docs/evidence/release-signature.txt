@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): false
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=Virat, OU=KITTY AI, O=Kitty Corp
+Signer #1 certificate SHA-256 digest: 047129a730f0686d4f83f1d89d690811f5d7f91e09cd283cb9fdfff0a14661d1
+Signer #1 certificate SHA-1 digest: e35928b853a88296450c3ce2cc879f4d9a6a4836
+Signer #1 certificate MD5 digest: ff1d6713a3a163f1b36515347f2c9afa
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 3072
+Signer #1 public key SHA-256 digest: af4bc9ef7b5c70b9ce53ce63a885d9cae829028b672e82996dcf0c78abff2502
+Signer #1 public key SHA-1 digest: 4c29136e75281e4d690ecdd21f98c3d317ad1970
+Signer #1 public key MD5 digest: 5103a9af716d9df115bfa61b8386cd85

@@ -32,9 +32,13 @@ android {
         create("owner") {
             if (signing.isNotEmpty()) {
                 storeFile = file(signing.getProperty("storeFile"))
-                storePassword = signing.getProperty("storePassword")
+                storePassword =
+                    System.getenv("KITTY_RELEASE_STORE_PASSWORD")
+                        ?: signing.getProperty("storePassword")
                 keyAlias = signing.getProperty("keyAlias")
-                keyPassword = signing.getProperty("keyPassword")
+                keyPassword =
+                    System.getenv("KITTY_RELEASE_KEY_PASSWORD")
+                        ?: signing.getProperty("keyPassword")
             }
         }
     }
@@ -69,6 +73,9 @@ tasks.register("verifyReleaseSetup") {
         }
         require(signing.isNotEmpty()) {
             "Add local keystore.properties pointing to your preserved owner signing key."
+        }
+        require(android.signingConfigs.getByName("owner").storePassword?.isNotEmpty() == true) {
+            "Use scripts/build-android.ps1 to unlock the local signing password."
         }
     }
 }

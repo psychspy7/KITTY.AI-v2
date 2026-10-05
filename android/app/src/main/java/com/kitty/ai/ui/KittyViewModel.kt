@@ -40,6 +40,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     private val player = SpeechPlayer(application)
     private val mutable = MutableStateFlow(KittyState())
     val state = mutable.asStateFlow()
+    val updater = AppUpdater(application, viewModelScope)
     val backendConfigured
         get() = api.configured
 
@@ -519,6 +520,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        updater.cancel()
         auth.removeAuthStateListener(listener)
         session?.cancel()
         reply?.cancel()

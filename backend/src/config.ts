@@ -22,6 +22,7 @@ export const configSchema = z.object({
     versionCode: z.number().int().min(1),
     versionName: z.string().max(40),
     url: z.string().max(500),
+    sha256: z.string().regex(/^[a-fA-F0-9]{64}$/).or(z.literal("")).default(""),
     notes: z.string().max(3000),
   }),
 });
@@ -38,7 +39,7 @@ export const DEFAULT_CONFIG: Config = {
   dailySpeechLimit: 10,
   globalDailyChatLimit: 500,
   maxOutputTokens: 1024,
-  release: { versionCode: 1, versionName: "1.0.0", url: "", notes: "" },
+  release: { versionCode: 1, versionName: "1.0.0", url: "", sha256: "", notes: "" },
 };
 export async function getConfig(env: Env): Promise<Config> {
   const row = await env.DB.prepare(
