@@ -9,6 +9,8 @@ export interface Env {
   RELEASE_REPOSITORY: string;
   GOOGLE_WEB_CLIENT_ID?: string;
   AI?: Ai;
+  CONTEXT?: Hyperdrive;
+  HISTORY_MODE?: string;
 }
 export interface Identity {
   uid: string;

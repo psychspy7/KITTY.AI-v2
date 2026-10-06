@@ -1,6 +1,14 @@
-# KITTY AI beginner guide — v1.5
+# KITTY AI beginner guide — v1.7.0
 
-Install [KITTY 1.5.0](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.5.0.apk) over your existing owner-signed KITTY app. Keep it installed to preserve local history. Version code is **5**; the original signing key is preserved. Google login and the secure browser option use your existing Firebase project.
+Install [KITTY 1.7.0](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.7.0.apk) over your existing owner-signed KITTY app. Keep it installed to preserve local history. Version code is **6**; the original signing key is preserved. Google login and the secure browser option use your existing Firebase project.
+
+On the first signed-in launch after upgrading, KITTY asks whether you want meow notifications. Choose **Allow notifications**, then approve Android's permission prompt on Android 13 or later. **Not now** keeps chat working without alerts and does not repeatedly ask. Later, use **Settings → Meow notifications** to allow notifications, mute categories or change their sound in Android settings. The short CC0 kitten sound is included in the APK; it needs no audio download or API key.
+
+Completed replies get one alert; failed/cancelled replies do not. New unread Inbox announcements and trusted newer releases get alerts too. Existing announcements are baselined to avoid replaying old alerts. Notifications hide message content on the lock screen and belong to the signed-in account; switching accounts clears previous alerts and changes the scheduled work.
+
+Inbox/update alerts are actual Android notifications backed by **background checks**, not instant server push. KITTY checks when you open it and schedules connected-network checks about every **15 minutes** when alerts are allowed. Android can delay them for battery saving, offline periods or device restrictions. Force-stopping KITTY prevents checks until it is opened again. Background checks need an active signed-in session; no Firebase Cloud Messaging credential, billing plan or foreground service is required. They use your existing backend's free request/database allowances. Reply alerts require the ongoing reply to finish while KITTY's process is alive; this update does not make interrupted chats continue after process death.
+
+When a saved account is being restored, KITTY shows a branded loading screen rather than a sign-in form. Cached history loads before cloud sync; no deliberate startup delay is added. A genuinely signed-out user still sees Google login.
 
 Open the menu for History, Memory, Inbox and Settings. Send hides the keyboard. The microphone opens your phone’s speech recognition service and places words in the draft; review them before sending. KITTY requests no microphone permission and does not listen in the background. If recognition is not installed, type instead.
 
@@ -123,13 +131,13 @@ If this API key has Android-only application restrictions, use a separate Fireba
 
 Wrangler prints your actual HTTPS Worker URL. Keep it: both the Android backend and owner console use it. In Firebase Authentication → Settings → Authorized domains, add **only its hostname** (without `https://` or a path). Keep your existing Firebase auth domain authorized.
 
-Open the Worker URL in a browser and sign in as **owner@example.com**. Before activation the page shows your verified Firebase UID and cannot use administrator routes. Copy that UID, then set it locally:
+Open the Worker URL in a browser and sign in as **viratanand1221@gmail.com**. Before activation the page shows your verified Firebase UID and cannot use administrator routes. Copy that UID, then set it locally:
 
 ```powershell
 npx.cmd wrangler secret put OWNER_UID --config backend/wrangler.toml
 ```
 
-Enter that exact UID at the terminal prompt. Refresh the console and sign in again if needed. The backend requires all of these: a valid non-revoked Firebase token issued for your project, Google as the sign-in provider, a verified email exactly equal to `owner@example.com`, and a UID exactly equal to `OWNER_UID`. An email match alone does not grant ownership. Ordinary users cannot activate ownership or edit the core prompt.
+Enter that exact UID at the terminal prompt. Refresh the console and sign in again if needed. The backend requires all of these: a valid non-revoked Firebase token issued for your project, Google as the sign-in provider, a verified email exactly equal to `viratanand1221@gmail.com`, and a UID exactly equal to `OWNER_UID`. An email match alone does not grant ownership. Ordinary users cannot activate ownership or edit the core prompt.
 
 ## 7. Configure KITTY
 
@@ -194,13 +202,13 @@ Release builds fail if a real backend URL or owner signing configuration is miss
 
 1. Keep the same package name, Firebase project and signing key. Increase versionCode for every published build.
 2. Build and test the APK with your owner key. Run `npm run check`, `npm test`, `npm run build`, and the Android build checks.
-3. Build the next release with versionCode **6 or higher**, for example `./scripts/build-android.ps1 -Release -BackendUrl 'https://kitty-ai-v2.kitty-ai.workers.dev' -VersionCode 6 -VersionName '1.5.1'`.
-4. Copy it to `admin/public/downloads/KITTY-AI-1.5.1.apk`, run `npm run build -w admin`, then `npx wrangler deploy --config backend/wrangler.toml`. Its direct URL is `https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.5.1.apk`. Alternatively create GitHub Release `v1.5.1` in `psychspy7/KITTY.AI-v2`, attach the APK and use its direct release download URL.
-5. Run `Get-FileHash artifacts/KITTY-AI-1.5.1.apk -Algorithm SHA256`. In the console's **Updates** page enter versionCode, versionName, direct URL, SHA-256 and notes. Publish an announcement if useful.
+3. Build the next release with versionCode **7 or higher**, for example `./scripts/build-android.ps1 -Release -BackendUrl 'https://kitty-ai-v2.kitty-ai.workers.dev' -VersionCode 7 -VersionName '1.5.2'`.
+4. Copy it to `admin/public/downloads/KITTY-AI-1.5.2.apk`, run `npm run build -w admin`, then `npx wrangler deploy --config backend/wrangler.toml`. Its direct URL is `https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.5.2.apk`. Alternatively create GitHub Release `v1.5.2` in `psychspy7/KITTY.AI-v2`, attach the APK and use its direct release download URL.
+5. Run `Get-FileHash artifacts/KITTY-AI-1.5.2.apk -Algorithm SHA256`. In the console's **Updates** page enter versionCode, versionName, direct URL, SHA-256 and notes. Publish an announcement if useful.
 
 Users choose **Settings → Check for updates → Download update**. KITTY downloads into private app storage, shows progress, supports cancellation/retry, accepts only the pinned KITTY APK path or this repository's GitHub release URLs and trusted asset redirects, and checks SHA-256, package, increasing versionCode and exact signing certificate. A verified download survives restart. Tap **Install**. Android may first ask to allow installations from KITTY; return and tap Install again. Android always confirms installation. `REQUEST_INSTALL_PACKAGES` exists solely for this explicit updater; no storage permission or silent installation is used. See [Android installation permission](https://developer.android.com/reference/android/content/pm/PackageManager#canRequestPackageInstalls()) and [FileProvider](https://developer.android.com/reference/androidx/core/content/FileProvider).
 
-Announcements are **in-app Inbox messages**. They are fetched during account sync, not delivered as background push notifications. No FCM notification permission is included in this release.
+Announcements remain in the app's Inbox and can produce optional meow notifications through account sync/background checks. This release requests Android's notification permission and uses WorkManager; it does not use Firebase Cloud Messaging for instant server push.
 
 ## 11. Privacy, memory and training
 

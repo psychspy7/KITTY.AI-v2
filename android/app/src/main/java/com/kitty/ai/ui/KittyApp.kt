@@ -1,13 +1,17 @@
 package com.kitty.ai.ui
 
+import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.os.Build
 import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -23,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -41,7 +46,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kitty.ai.BuildConfig
 import com.kitty.ai.R
 import com.kitty.ai.data.*
+import com.kitty.ai.ui.markdown.MarkdownBody
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.filterNotNull
 
 private val Midnight = Color(0xFF151518)
 private val Lilac = Color(0xFFD0B4FF)
@@ -65,6 +74,10 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
     val state by vm.state.collectAsStateWithLifecycle()
     val download by vm.updater.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current
+    val notificationPermission =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            vm.notificationPermissionChanged()
+        }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) {
@@ -92,7 +105,7 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
         val scope = rememberCoroutineScope()
         ModalNavigationDrawer(
             drawerState = drawer,
-            gesturesEnabled = state.uid != null,
+            gesturesEnabled = state.uid != null && !state.booting,
             drawerContent = {
                 ModalDrawerSheet {
                     Spacer(Modifier.height(24.dp))
@@ -142,11 +155,13 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
                 containerColor = Midnight,
                 snackbarHost = { SnackbarHost(snackbar) },
                 topBar = {
-                    if (state.uid != null) KittyHeader(state, vm) { scope.launch { drawer.open() } }
+                    if (state.uid != null && !state.booting)
+                        KittyHeader(state, vm) { scope.launch { drawer.open() } }
                 },
             ) { padding ->
                 Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
-                    if (state.uid == null) LoginScreen(state, vm, activity)
+                    if (state.booting) KittyBootScreen()
+                    else if (state.uid == null) LoginScreen(state, vm, activity)
                     else
                         when (state.screen) {
                             "Chat" -> ChatScreen(state, vm)
@@ -158,6 +173,17 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
                 }
             }
         }
+        if (state.showNotificationPrompt && state.uid != null && !state.booting)
+            NotificationPrompt(
+                onDismiss = vm::notificationPromptHandled,
+                onAllow = {
+                    vm.notificationPromptHandled()
+                    vm.enableNotifications()
+                    if (Build.VERSION.SDK_INT >= 33)
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    else vm.notificationPermissionChanged()
+                },
+            )
         state.update?.let { update ->
             val newer = update.versionCode > BuildConfig.VERSION_CODE
             val published =
@@ -258,6 +284,58 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
 }
 
 @Composable
+internal fun NotificationPrompt(onAllow: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("A little meow from KITTY?") },
+        text = {
+            Text(
+                "Get a short meow when a reply is ready, a new Inbox note arrives or an update is available. Android’s sound and Do Not Disturb settings always apply. You can change each category in Settings."
+            )
+        },
+        confirmButton = { TextButton(onClick = onAllow) { Text("Allow notifications") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Not now") } },
+    )
+}
+
+@Composable
+internal fun KittyBootScreen() {
+    val transition = rememberInfiniteTransition(label = "Kitty startup")
+    val glow by
+        transition.animateFloat(
+            0.72f,
+            1f,
+            infiniteRepeatable(tween(1300), RepeatMode.Reverse),
+            label = "Emblem glow",
+        )
+    Column(
+        Modifier.fillMaxSize().background(Midnight).padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Image(
+            painterResource(R.drawable.kitty_icon),
+            "KITTY emblem",
+            Modifier.size(112.dp).clip(RoundedCornerShape(30.dp)).alpha(glow),
+        )
+        Spacer(Modifier.height(28.dp))
+        Text("KITTY", fontSize = 32.sp, letterSpacing = 5.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+        Text(
+            "Getting your space ready.",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(28.dp))
+        LinearProgressIndicator(
+            Modifier.width(116.dp).height(2.dp),
+            color = Lilac,
+            trackColor = Color(0xFF2E263B),
+        )
+    }
+}
+
+@Composable
 private fun KittyHeader(state: KittyState, vm: KittyViewModel, onMenu: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(horizontal = 8.dp),
@@ -343,6 +421,9 @@ private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activit
         ) {
             Text("Sign in using browser")
         }
+        Spacer(Modifier.height(12.dp))
+        Text("By signing in, you agree to our Terms & Conditions.", fontSize = 10.sp,
+            lineHeight = 16.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (state.browserSigningIn) {
             Spacer(Modifier.height(12.dp))
             Text(
@@ -388,6 +469,9 @@ private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activit
 @Composable
 internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
     var draft by remember(state.uid, state.selected) { mutableStateOf("") }
+    var following by remember(state.uid, state.selected) { mutableStateOf(true) }
+    var userScroll by remember(state.uid, state.selected) { mutableStateOf(false) }
+    val chatScope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val voiceAccount = remember { mutableStateOf<String?>(null) }
@@ -409,19 +493,40 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
     fun sendDraft() {
         if (draft.isNotBlank() && !state.busy && !state.syncing) {
             vm.send(draft)
+            following = true
             draft = ""
             keyboard?.hide()
             focus.clearFocus()
         }
     }
     val messages = state.data.messages.filter { it.conversation_id == state.selected }
-    val list = rememberLazyListState()
-    LaunchedEffect(messages.lastOrNull()?.text?.length, messages.size) {
-        if (
-            messages.isNotEmpty() &&
-                (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= messages.size - 3
-        )
-            list.scrollToItem(messages.lastIndex)
+    val list = key(state.uid, state.selected) { rememberLazyListState() }
+    val messageCount by rememberUpdatedState(messages.size)
+    LaunchedEffect(list) {
+        list.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) userScroll = true
+        }
+    }
+    LaunchedEffect(list) {
+        snapshotFlow { list.isScrollInProgress }.collect { if (!it) userScroll = false }
+    }
+    LaunchedEffect(list) {
+        var previous = list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset
+        snapshotFlow { list.firstVisibleItemIndex to list.firstVisibleItemScrollOffset }.collect { current ->
+            if (userScroll) {
+                if (current.first < previous.first || (current.first == previous.first && current.second < previous.second)) following = false
+                if (!list.canScrollForward && list.layoutInfo.totalItemsCount > 0) following = true
+            }
+            previous = current
+        }
+    }
+    LaunchedEffect(list) {
+        snapshotFlow {
+            if (following && !userScroll && list.layoutInfo.totalItemsCount > 0)
+                Triple(list.layoutInfo.totalItemsCount, list.layoutInfo.viewportEndOffset,
+                    list.layoutInfo.visibleItemsInfo.map { it.index to it.size })
+            else null
+        }.filterNotNull().collectLatest { list.scrollToItem(messageCount) }
     }
     Column(Modifier.fillMaxSize().imePadding()) {
         if (messages.isEmpty())
@@ -465,7 +570,18 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 items(messages, key = { it.id }) { message -> MessageCard(message, state, vm) }
+                item(key = "chat-tail") { Spacer(Modifier.height(1.dp)) }
             }
+        AnimatedVisibility(!following && messages.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                TextButton(onClick = {
+                    chatScope.launch {
+                        list.animateScrollToItem(messageCount)
+                        following = true
+                    }
+                }) { Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Jump to latest", fontSize = 12.sp) }
+            }
+        }
         AnimatedVisibility(state.syncing) {
             LinearProgressIndicator(Modifier.fillMaxWidth(), color = Lilac)
         }
@@ -580,14 +696,9 @@ private fun MessageCard(message: ChatMessage, state: KittyState, vm: KittyViewMo
             shape = RoundedCornerShape(18.dp),
         ) {
             SelectionContainer {
-                Text(
-                    message.text.ifEmpty {
-                        if (message.status == "streaming") "Thinking…" else "Reply stopped."
-                    },
-                    fontSize = 15.sp,
-                    lineHeight = 25.sp,
-                    modifier = Modifier.padding(if (assistant) 0.dp else 16.dp),
-                )
+                if (assistant && message.text.isNotEmpty()) MarkdownBody(message.text, message.status == "streaming")
+                else Text(message.text.ifEmpty { if (message.status == "streaming") "Thinking…" else "Reply stopped." },
+                    fontSize = 15.sp, lineHeight = 25.sp, modifier = Modifier.padding(if (assistant) 0.dp else 16.dp))
             }
         }
         if (assistant)
@@ -807,7 +918,7 @@ private fun InboxScreen(state: KittyState, vm: KittyViewModel) {
             EmptyCard(
                 Icons.Outlined.Inbox,
                 "All quiet for now.",
-                "Announcements appear here. Background push notifications are not enabled.",
+                "Announcements appear here. Allow meow notifications for background Inbox and update checks. Android may delay those checks to save battery.",
             )
         else
             LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -881,15 +992,22 @@ internal fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Act
             vm::checkUpdates,
         )
         SettingsItem(
+            Icons.Outlined.Notifications,
+            "Meow notifications",
+            if (state.notificationsAllowed) "Replies, Inbox and updates · Manage sound"
+            else "Off · Allow in Android settings",
+            { vm.notificationSettings(activity) },
+        )
+        SettingsItem(
             Icons.Outlined.CloudSync,
             "Sync account data",
-            "History, memories and Inbox",
+            "Personal memories and Inbox",
             vm::refresh,
         )
         SettingsItem(
             Icons.Outlined.DeleteSweep,
-            "Clear this device’s cache",
-            "Cloud history remains available",
+            "Clear this device’s chat history",
+            "Full chats are saved on this device",
             { clearDialog = true },
         )
         HorizontalDivider(Modifier.padding(vertical = 22.dp), color = Color(0xFF35353B))
@@ -915,6 +1033,14 @@ internal fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Act
         HorizontalDivider(Modifier.padding(vertical = 16.dp))
         Text("PRIVACY & LEARNING", fontSize = 10.sp, letterSpacing = 2.sp, color = Lilac)
         Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Usage insights", fontSize = 14.sp)
+                Text("Optional usage and performance metrics. Chat text and personal memories are excluded.", fontSize = 11.sp, lineHeight = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Switch(checked = state.data.usageInsights, onCheckedChange = vm::usageInsights)
+        }
+        Spacer(Modifier.height(20.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Allow example sharing", fontSize = 14.sp)
@@ -997,7 +1123,7 @@ internal fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Act
             title = { Text("Clear local cache?") },
             text = {
                 Text(
-                    "This clears this account’s saved data on this device. Sync restores your cloud data."
+                    "This permanently removes full chat history from this device. It cannot be restored by sync. Your saved personal memories remain available."
                 )
             },
             confirmButton = {

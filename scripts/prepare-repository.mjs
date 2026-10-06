@@ -60,7 +60,7 @@ function walk(path) {
   )
     return;
   const file = relative(root, path).replaceAll("\\", "/");
-  if (/\.(png|webp|jar|wav)$/.test(file)) {
+  if (/\.(png|webp|jar|wav|mp3)$/.test(file)) {
     binary.push({
       path: file,
       encoding: "base64",

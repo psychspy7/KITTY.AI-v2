@@ -115,6 +115,15 @@ async function load() {
         notify((e as Error).message, true);
       }
     };
+    const diagnostics=document.createElement("article");
+    diagnostics.innerHTML='<h3>Usage and context</h3><p>Optional app usage insights are available in <a href="https://console.firebase.google.com/project/kittyai-f743c/analytics/overview" target="_blank" rel="noopener noreferrer">Firebase Analytics</a>. Full chats stay on the device; only bounded context and personal memories sync.</p><button id="context-check">Check context connection</button>';
+    document.querySelector("main footer")!.before(diagnostics);
+    document.getElementById("context-check")!.onclick=async()=>{
+      const button=document.getElementById("context-check") as HTMLButtonElement;
+      button.disabled=true;
+      try { const result=await api("admin/context/health");notify(result.connected?"Context connection passed.":"Context connection needs attention."); }
+      catch(e){notify((e as Error).message,true);}finally{button.disabled=false;}
+    };
   } else if (section === "providers") {
     renderProviders({config,providers,shell,api,load,saveConfig,notify});
   } else if (section === "personality") {
@@ -158,7 +167,7 @@ async function load() {
     shell(
       title(
         "Something to say?",
-        "Announcements appear in the in-app Inbox. This release does not send background push notifications.",
+        "Announcements appear in the Inbox. Users who allow notifications receive meow alerts through background checks; Android may delay these checks.",
       ) +
         `<article><form id="notice">${field("Title", "notice-title", "")}<label>Announcement<textarea id="notice-body" rows="5"></textarea></label><button type="submit" class="primary">Publish announcement</button></form></article><article>${notices.map((n: any) => `<div class="provider"><div><h3>${escape(n.title)}</h3><p>${escape(n.body)}</p></div><button data-notice="${escape(n.id)}" class="danger">Remove</button></div>`).join("") || "<p>Your Inbox is quiet.</p>"}</article>`,
     );
@@ -211,7 +220,7 @@ async function load() {
 }
 function login() {
   stopProviderPreview();
-  app.innerHTML = `<div class="login"><img src="/kitty-icon.png" alt="KITTY"><span class="eyebrow">KITTY / CONTROL ROOM</span><h1>Good to see you, Sir.</h1><p>A companion with character.<br>A control room with boundaries.</p><button id="login" class="primary">Sign in with Google</button><p id="login-error" role="alert"></p><small>Owner account only</small></div>`;
+  app.innerHTML = `<div class="login"><img src="/kitty-icon.png" alt="KITTY"><span class="eyebrow">KITTY / CONTROL ROOM</span><h1>Good to see you, Sir.</h1><p>A companion with character.<br>A control room with boundaries.</p><button id="login" class="primary">Sign in with Google</button><p id="login-error" role="alert"></p><small>Owner: viratanand1221@gmail.com</small></div>`;
   document.getElementById("login")!.onclick = () => {
     const p = new GoogleAuthProvider();
     p.setCustomParameters({ prompt: "select_account" });

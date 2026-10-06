@@ -91,9 +91,9 @@ class ApiClient(private val auth: FirebaseAuth) {
         data: T,
     ): String = raw(uid, path, method, json.encodeToString(data))
 
-    suspend fun stream(uid: String, input: ChatRequest, onDelta: (String) -> Unit) {
+    suspend fun stream(uid: String, input: ChatRequest, onDelta: (String) -> Unit): ReplyReceipt {
         val request = request(uid, "chat", "POST", json.encodeToString(input))
-        coroutineScope {
+        return coroutineScope {
             val call = client.newCall(request)
             val watcher =
                 launch(Dispatchers.Default, start = CoroutineStart.UNDISPATCHED) {
@@ -105,6 +105,7 @@ class ApiClient(private val auth: FirebaseAuth) {
                 }
             val pending = StringBuilder()
             var last = System.nanoTime()
+            var receipt = ReplyReceipt()
             try {
                 withContext(Dispatchers.IO) {
                     call.execute().use { response ->
@@ -130,7 +131,10 @@ class ApiClient(private val auth: FirebaseAuth) {
                                         last = System.nanoTime()
                                     }
                                 }
-                                "done" -> done = true
+                                "done" -> {
+                                    receipt = json.decodeFromString<ReplyReceipt>(event.data)
+                                    done = true
+                                }
                                 "error" ->
                                     error(
                                         payload["message"]?.jsonPrimitive?.content
@@ -145,6 +149,7 @@ class ApiClient(private val auth: FirebaseAuth) {
                 if (pending.isNotEmpty()) onDelta(pending.toString())
                 watcher.cancel()
             }
+            receipt
         }
     }
 

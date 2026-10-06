@@ -1,13 +1,22 @@
 name = "kitty-ai-v2"
 main = "src/index.ts"
 compatibility_date = "2025-09-01"
+compatibility_flags = ["nodejs_compat"]
 workers_dev = true
+
+[triggers]
+crons = ["0 * * * *"]
 
 [vars]
 FIREBASE_PROJECT_ID = "kittyai-f743c"
-OWNER_EMAIL = "owner@example.com"
+OWNER_EMAIL = "viratanand1221@gmail.com"
 RELEASE_REPOSITORY = "psychspy7/KITTY.AI-v2"
 GOOGLE_WEB_CLIENT_ID = "34203306703-u82o8grcs0qr2j30dgsf84bue2v7is22.apps.googleusercontent.com"
+HISTORY_MODE = "local"
+
+[[hyperdrive]]
+binding = "CONTEXT"
+id = "b35a29067b844ab9ae79894aeef72228"
 
 [ai]
 binding = "AI"

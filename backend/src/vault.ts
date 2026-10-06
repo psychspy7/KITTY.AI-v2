@@ -1,7 +1,11 @@
 import { ApiError } from "./types";
 const bytes = (value: string) =>
   Uint8Array.from(atob(value), (x) => x.charCodeAt(0));
-const base64 = (value: Uint8Array) => btoa(String.fromCharCode(...value));
+const base64 = (value: Uint8Array) => {
+  let text="";
+  for(let i=0;i<value.length;i+=8192)text+=String.fromCharCode(...value.subarray(i,i+8192));
+  return btoa(text);
+};
 async function key(secret?: string) {
   if (!secret) throw new ApiError(503, "Provider vault is not configured.");
   const data = bytes(secret);

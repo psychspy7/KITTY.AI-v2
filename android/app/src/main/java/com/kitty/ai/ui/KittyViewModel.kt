@@ -2,6 +2,7 @@ package com.kitty.ai.ui
 
 import android.app.Activity
 import android.app.Application
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
@@ -10,6 +11,8 @@ import com.kitty.ai.audio.SpeechPlayer
 import com.kitty.ai.auth.BrowserLogin
 import com.kitty.ai.auth.GoogleLogin
 import com.kitty.ai.data.*
+import com.kitty.ai.notifications.AlertScheduler
+import com.kitty.ai.notifications.KittyNotifications
 import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +22,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 data class KittyState(
+    val booting: Boolean = true,
     val uid: String? = null,
     val name: String = "",
     val email: String = "",
@@ -34,6 +38,8 @@ data class KittyState(
     val error: String? = null,
     val update: UpdateInfo? = null,
     val showConsent: Boolean = false,
+    val showNotificationPrompt: Boolean = false,
+    val notificationsAllowed: Boolean = false,
 )
 
 class KittyViewModel(application: Application) : AndroidViewModel(application) {
@@ -44,6 +50,9 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     private val store = LocalStore(application)
     private val player = SpeechPlayer(application)
     private val deviceSpeaker = DeviceSpeaker(application)
+    private val notifications = KittyNotifications(application)
+    private val insights = UsageInsights(application)
+    private val startedAt = android.os.SystemClock.elapsedRealtime()
     private val mutable = MutableStateFlow(KittyState())
     val state = mutable.asStateFlow()
     val updater = AppUpdater(application, viewModelScope)
@@ -58,6 +67,8 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     private var speechGeneration = 0
     private val persistence = Mutex()
     private val listener = FirebaseAuth.AuthStateListener { switchAccount() }
+    private var accountInitialized = false
+    private var pendingAlert: Intent? = null
 
     init {
         auth.addAuthStateListener(listener)
@@ -67,7 +78,9 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun switchAccount() {
         val account = auth.currentUser
-        if (account?.uid == mutable.value.uid) return
+        if (accountInitialized && account?.uid == mutable.value.uid) return
+        accountInitialized = true
+        insights.configure(false, reset = true)
         epoch++
         val generation = epoch
         session?.cancel()
@@ -76,18 +89,32 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         api.cancelAll()
         player.stop()
         deviceSpeaker.stop()
+        val changed = notifications.activate(account?.uid)
+        AlertScheduler.activate(getApplication(), account?.uid, changed)
         mutable.value =
             KittyState(
+                booting = account != null,
                 uid = account?.uid,
                 name = account?.displayName?.substringBefore(" ").orEmpty(),
                 email = account?.email.orEmpty(),
             )
-        if (account == null) return
+        if (account == null) {
+            if (browserLogin.hasPending())
+                mutable.update { it.copy(signingIn = true, browserSigningIn = true) }
+            pendingAlert = null
+            return
+        }
         session = viewModelScope.launch {
             val local = persistence.withLock { store.read(account.uid) }
             if (epoch != generation) return@launch
+            insights.configure(local.usageInsights)
+            insights.measured(UsageInsights.Operation.STARTUP, android.os.SystemClock.elapsedRealtime() - startedAt, UsageInsights.Outcome.COMPLETE)
+            notifications.seedNotices(account.uid, local.notices)
             mutable.update {
                 it.copy(
+                    booting = false,
+                    showNotificationPrompt = notifications.needsPrompt(),
+                    notificationsAllowed = notifications.allowed(),
                     data =
                         local.copy(
                             messages =
@@ -98,7 +125,9 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                     selected = local.conversations.firstOrNull()?.id ?: it.selected,
                 )
             }
+            consumeAlert()
             refresh()
+            if (foreground) AlertScheduler.checkNow(getApplication(), account.uid)
         }
     }
 
@@ -106,13 +135,77 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     private var foreground = false
 
     fun setForeground(active: Boolean) {
+        val resumed = active && !foreground
         foreground = active
-        if (active) resumeBrowserSignIn()
-        else if (mutable.value.browserSigningIn) {
+        if (active) {
+            resumeBrowserSignIn()
+            mutable.update { it.copy(notificationsAllowed = notifications.allowed()) }
+            if (resumed)
+                mutable.value.uid?.let {
+                    AlertScheduler.activate(getApplication(), it, false)
+                    AlertScheduler.checkNow(getApplication(), it)
+                }
+        } else if (mutable.value.browserSigningIn) {
             // Browsers own the foreground during Google login. Cached apps can lose network access.
             loginAttempt++
             loginJob?.cancel()
             loginJob = null
+        }
+    }
+
+    fun notificationPromptHandled() {
+        notifications.promptHandled()
+        mutable.update { it.copy(showNotificationPrompt = false) }
+    }
+
+    fun notificationPermissionChanged() {
+        mutable.update { it.copy(notificationsAllowed = notifications.allowed()) }
+        AlertScheduler.activate(getApplication(), mutable.value.uid, false)
+        mutable.value.uid?.let { AlertScheduler.checkNow(getApplication(), it) }
+    }
+
+    fun enableNotifications() {
+        notifications.optIn()
+    }
+
+    fun notificationSettings(activity: Activity) {
+        notifications.optIn()
+        activity.startActivity(notifications.settingsIntent())
+    }
+
+    fun openNotification(intent: Intent) {
+        if (intent.action != KittyNotifications.OPEN_ALERT) return
+        pendingAlert = Intent(intent)
+        consumeAlert()
+    }
+
+    private fun consumeAlert() {
+        val intent = pendingAlert ?: return
+        if (mutable.value.booting) return
+        pendingAlert = null
+        val uid = mutable.value.uid ?: return
+        if (
+            intent.getStringExtra(KittyNotifications.ACCOUNT) != uid || auth.currentUser?.uid != uid
+        )
+            return
+        when (intent.getStringExtra(KittyNotifications.PAGE)) {
+            "Inbox" -> {
+                navigate("Inbox")
+                refresh()
+            }
+            "Update" -> {
+                navigate("Settings")
+                checkUpdates()
+            }
+            "Chat" -> {
+                val conversation = intent.getStringExtra(KittyNotifications.CONVERSATION)
+                if (
+                    conversation != null &&
+                        mutable.value.data.conversations.any { it.id == conversation }
+                )
+                    openChat(conversation)
+                else navigate("Chat")
+            }
         }
     }
 
@@ -188,6 +281,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun navigate(screen: String) {
+        insights.screen(screen)
         mutable.update { it.copy(screen = screen, error = null) }
     }
 
@@ -215,21 +309,38 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             if (mutable.value.syncing || mutable.value.busy) return@launch
             mutable.update { it.copy(syncing = true) }
+            val syncStarted = android.os.SystemClock.elapsedRealtime()
+            var outcome = UsageInsights.Outcome.COMPLETE
             try {
-                val conversations = api.get<List<Conversation>>(uid, "conversations")
+                if (!mutable.value.data.historyMigrated) {
+                    var offset = 0
+                    var token = ""
+                    do {
+                        val page = api.get<HistoryExport>(uid, "history/export?offset=$offset&token=$token")
+                        if (epoch != generation) return@launch
+                        token = page.token
+                        mutable.update { it.copy(data = mergeExport(it.data, page)) }
+                        // Atomic durable storage must finish before the backend may delete an export.
+                        save(uid, generation)
+                        offset = page.next ?: -1
+                    } while (offset >= 0)
+                    if (epoch != generation) return@launch
+                    if (token.isNotEmpty()) api.send(uid, "history/ack", "POST", HistoryAck(token))
+                    if (epoch != generation) return@launch
+                    mutable.update { it.copy(data = it.data.copy(historyMigrated = true)) }
+                    save(uid, generation)
+                }
                 val memories = api.get<List<Memory>>(uid, "memories")
                 val notices = api.get<List<Notice>>(uid, "announcements")
                 val consent = api.get<Consent>(uid, "consent")
-                val selected = mutable.value.selected
-                val messages =
-                    if (conversations.any { it.id == selected })
-                        api.get<List<ChatMessage>>(uid, "conversations/$selected")
-                    else emptyList()
+                val contexts = try { api.get<List<SavedContext>>(uid, "context") }
+                    catch (e: CancellationException) { throw e }
+                    catch (_: Exception) { emptyList() } // Context outage must not block local chats.
                 if (epoch == generation) {
                     mutable.update {
                         it.copy(
                             data =
-                                mergeHistory(it.data, conversations, messages, selected)
+                                it.data.copy(conversations = (it.data.conversations + contexts.filter { c -> it.data.conversations.none { old -> old.id == c.conversationId } }.map { c -> Conversation(c.conversationId, c.summary.topic.ifBlank { "Saved context" }, c.revision) }).sortedByDescending { c -> c.updated_at })
                                     .copy(
                                         memories = memories,
                                         notices = notices,
@@ -238,13 +349,19 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                     save(uid, generation)
+                    notifications.observeNotices(uid, notices)
                 }
             } catch (e: CancellationException) {
+                outcome = UsageInsights.Outcome.CANCELLED
                 throw e
             } catch (e: Exception) {
+                outcome = UsageInsights.Outcome.FAILED
                 fail(e, generation)
             } finally {
-                if (epoch == generation) mutable.update { it.copy(syncing = false) }
+                if (epoch == generation) {
+                    mutable.update { it.copy(syncing = false) }
+                    insights.measured(UsageInsights.Operation.SYNC, android.os.SystemClock.elapsedRealtime() - syncStarted, outcome)
+                }
             }
         }
     }
@@ -326,9 +443,11 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         }
         reply = viewModelScope.launch {
             var status = "complete"
+            var receipt = ReplyReceipt()
+            val replyStarted = android.os.SystemClock.elapsedRealtime()
             try {
                 save(uid, generation)
-                api.stream(uid, ChatRequest(request, conversation, text.trim())) { delta ->
+                receipt = api.stream(uid, ChatRequest(request, conversation, text.trim(), recentContext(current.data.messages, conversation, request))) { delta ->
                     if (epoch == generation)
                         mutable.update {
                             it.copy(
@@ -359,12 +478,24 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                                 it.data.copy(
                                     messages =
                                         it.data.messages.map { m ->
-                                            if (m.id == assistant.id) m.copy(status = status) else m
+                                            if (m.id == assistant.id) m.copy(status = status, proof = receipt.proof, questionHash = receipt.questionHash) else m
                                         }
                                 ),
                         )
                     }
                     withContext(NonCancellable) { save(uid, generation) }
+                    if (epoch == generation) insights.measured(UsageInsights.Operation.REPLY, android.os.SystemClock.elapsedRealtime() - replyStarted, when(status) { "complete" -> UsageInsights.Outcome.COMPLETE; "cancelled" -> UsageInsights.Outcome.CANCELLED; else -> UsageInsights.Outcome.FAILED })
+                    if (epoch == generation && status == "complete") {
+                        mutable.value.data.messages
+                            .find { it.id == assistant.id }
+                            ?.let {
+                                notifications.replyFinished(uid, it)
+                            }
+                        // Receipt and complete text are durable locally before clearing the retry cache.
+                        try { api.send(uid, "reply/ack", "POST", ReplyAck(request)) }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Exception) { /* Encrypted retry cache expires after one hour. */ }
+                    }
                 }
             }
         }
@@ -419,7 +550,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val audio =
                     api.json.decodeFromString<SpeechAudio>(
-                        api.send(uid, "speech", "POST", MessageRequest(message.id))
+                        api.send(uid, "speech", "POST", VerifiedReply(message.id, message.text, message.questionHash, message.proof))
                     )
                 if (epoch == generation && speechGeneration == playback)
                     player.play(
@@ -448,6 +579,14 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         val generation = epoch
         stopSpeech()
         mutable.update { it.copy(data = it.data.copy(deviceSpeech = value)) }
+        viewModelScope.launch { save(uid, generation) }
+    }
+
+    fun usageInsights(value: Boolean) {
+        val uid = mutable.value.uid ?: return
+        val generation = epoch
+        insights.configure(value, reset = !value)
+        mutable.update { it.copy(data = it.data.copy(usageInsights = value)) }
         viewModelScope.launch { save(uid, generation) }
     }
 
@@ -531,6 +670,8 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                             LocalSnapshot(
                                 consent = it.data.consent,
                                 deviceSpeech = it.data.deviceSpeech,
+                                usageInsights = it.data.usageInsights,
+                                historyMigrated = it.data.historyMigrated,
                             ),
                         busy = false,
                         syncing = false,
@@ -561,9 +702,10 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
     fun share(message: ChatMessage) {
         val uid = mutable.value.uid ?: return
         val generation = epoch
+        val question = mutable.value.data.messages.find { it.request_id == message.request_id && it.role == "user" } ?: return
         viewModelScope.launch {
             try {
-                api.send(uid, "examples", "POST", MessageRequest(message.id))
+                api.send(uid, "examples", "POST", SharedReply(message.id, message.conversation_id, question.text, message.text, message.questionHash, message.proof))
                 if (epoch == generation)
                     mutable.update {
                         it.copy(
