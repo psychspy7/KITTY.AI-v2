@@ -4,9 +4,9 @@ A native Kotlin + Jetpack Compose companion created by **Virat with the help of 
 
 The complete source includes the Android app, Cloudflare Worker API, D1 migrations, a separate owner console, premium brand artwork, security tests and release scripts.
 
-**Start with [the beginner guide](docs/BEGINNER-GUIDE.md).** Read [the current validation report](docs/VALIDATION-1.7.0.md) before treating a build as production-ready. This project does not embed provider keys in the Android app.
+**Start with [the beginner guide](docs/BEGINNER-GUIDE.md).** Read [the current validation report](docs/VALIDATION-1.7.1.md) before treating a build as production-ready. This project does not embed provider keys in the Android app.
 
-[Download KITTY AI 1.7.0](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.7.0.apk) · [Owner console](https://kitty-ai-v2.kitty-ai.workers.dev) · [Deployment status](docs/DEPLOYMENT.md). The signed release is connected to the deployed backend. Firebase Google login, authorized domain, release fingerprints and exact owner UID are configured. Cloudflare free chat is primary, with the saved Groq key preserved as fallback. The console tests real requests before saving; device speech and Cloudflare/ElevenLabs/Fish adapters are included. The browser sign-in page is hosted on the existing Firebase domain, and KITTY completes login when it returns to the foreground.
+[Download KITTY AI 1.7.1](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.7.1.apk) · [Owner console](https://kitty-ai-v2.kitty-ai.workers.dev) · [Deployment status](docs/DEPLOYMENT.md). The signed release is connected to the deployed backend. Firebase Google login, authorized domain, release fingerprints and exact owner UID are configured. Cloudflare free chat is primary, with the saved Groq key preserved as fallback. The console tests real requests before saving; device speech and Cloudflare/ElevenLabs/Fish adapters are included. The browser sign-in page is hosted on the existing Firebase domain, and KITTY completes login when it returns to the foreground.
 
 ## Architecture
 

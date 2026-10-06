@@ -1,6 +1,6 @@
 # KITTY AI 1.7 Validation
 
-This document reports the validation steps and outcomes for the KITTY AI 1.7.0 release.
+This document reports the validation steps and outcomes for the KITTY AI 1.7.1 release.
 
 ## Code and Test Verification
 
@@ -21,12 +21,12 @@ This document reports the validation steps and outcomes for the KITTY AI 1.7.0 r
 
 3. **Android Builds:**
    - `assembleDebug` succeeded, producing debug APK.
-   - `assembleRelease` succeeded, signing successfully with the verified owner certificate (versionCode 7, versionName 1.7.0).
+   - `assembleRelease` succeeded, signing successfully with the verified owner certificate (versionCode 8, versionName 1.7.1).
 
 4. **Backend Deploy:**
    - The new D1 migration (`0004_context_and_local_history.sql`) applied successfully.
    - The backend worker bundled and deployed to Cloudflare Workers.
-   - `/api/health` successfully returns version `1.7.0`.
+   - `/api/health` successfully returns version `1.7.1`.
 
 ## Known Validation Limitations
 

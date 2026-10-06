@@ -963,6 +963,7 @@ private fun InboxScreen(state: KittyState, vm: KittyViewModel) {
 internal fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Activity) {
     var consentDialog by remember { mutableStateOf(false) }
     var clearDialog by remember { mutableStateOf(false) }
+    var notificationDialog by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)) {
         SectionHeading("Your space.", "A few essentials, exactly where you need them.")
         Surface(shape = RoundedCornerShape(18.dp), color = Color(0xFF222226)) {
@@ -994,9 +995,9 @@ internal fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Act
         SettingsItem(
             Icons.Outlined.Notifications,
             "Meow notifications",
-            if (state.notificationsAllowed) "Replies, Inbox and updates · Manage sound"
+            if (state.notificationsAllowed) "Replies, Updates, Inbox · Manage"
             else "Off · Allow in Android settings",
-            { vm.notificationSettings(activity) },
+            { if (state.notificationsAllowed) notificationDialog = true else vm.notificationSettings(activity) },
         )
         SettingsItem(
             Icons.Outlined.CloudSync,
@@ -1138,6 +1139,49 @@ internal fun SettingsScreen(state: KittyState, vm: KittyViewModel, activity: Act
             },
             dismissButton = { TextButton(onClick = { clearDialog = false }) { Text("Cancel") } },
         )
+    if (notificationDialog) {
+        val prefs = activity.getSharedPreferences("kitty-auth", android.content.Context.MODE_PRIVATE)
+        var replies by remember { mutableStateOf(prefs.getBoolean("channel-REPLIES", true)) }
+        var inbox by remember { mutableStateOf(prefs.getBoolean("channel-INBOX", true)) }
+        var updates by remember { mutableStateOf(prefs.getBoolean("channel-UPDATES", true)) }
+
+        AlertDialog(
+            onDismissRequest = { notificationDialog = false },
+            title = { Text("Meow notifications") },
+            text = {
+                Column(Modifier.fillMaxWidth()) {
+                    Row(Modifier.fillMaxWidth().clickable {
+                        replies = !replies; prefs.edit().putBoolean("channel-REPLIES", replies).apply()
+                    }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = replies, onCheckedChange = null)
+                        Spacer(Modifier.width(16.dp))
+                        Text("Chat replies")
+                    }
+                    Row(Modifier.fillMaxWidth().clickable {
+                        inbox = !inbox; prefs.edit().putBoolean("channel-INBOX", inbox).apply()
+                    }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = inbox, onCheckedChange = null)
+                        Spacer(Modifier.width(16.dp))
+                        Text("Announcements (Inbox)")
+                    }
+                    Row(Modifier.fillMaxWidth().clickable {
+                        updates = !updates; prefs.edit().putBoolean("channel-UPDATES", updates).apply()
+                    }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = updates, onCheckedChange = null)
+                        Spacer(Modifier.width(16.dp))
+                        Text("App updates")
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    TextButton(onClick = { vm.notificationSettings(activity) }) {
+                        Text("Manage Android OS channels", color = Lilac)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { notificationDialog = false }) { Text("Done") }
+            }
+        )
+    }
 }
 
 @Composable

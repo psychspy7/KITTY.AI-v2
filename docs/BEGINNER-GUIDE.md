@@ -1,6 +1,6 @@
-# KITTY AI beginner guide — v1.7.0
+# KITTY AI beginner guide — v1.7.1
 
-Install [KITTY 1.7.0](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.7.0.apk) over your existing owner-signed KITTY app. Keep it installed to preserve local history. Version code is **6**; the original signing key is preserved. Google login and the secure browser option use your existing Firebase project.
+Install [KITTY 1.7.1](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.7.1.apk) over your existing owner-signed KITTY app. Keep it installed to preserve local history. Version code is **6**; the original signing key is preserved. Google login and the secure browser option use your existing Firebase project.
 
 On the first signed-in launch after upgrading, KITTY asks whether you want meow notifications. Choose **Allow notifications**, then approve Android's permission prompt on Android 13 or later. **Not now** keeps chat working without alerts and does not repeatedly ask. Later, use **Settings → Meow notifications** to allow notifications, mute categories or change their sound in Android settings. The short CC0 kitten sound is included in the APK; it needs no audio download or API key.
 

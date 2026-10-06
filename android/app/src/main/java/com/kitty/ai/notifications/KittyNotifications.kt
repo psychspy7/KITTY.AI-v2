@@ -191,6 +191,7 @@ internal class KittyNotifications(
         if (
             !matches(uid) ||
                 !allowed() ||
+                !prefs.getBoolean("channel-$channel", true) ||
                 manager.getNotificationChannel(channel)?.importance ==
                     NotificationManager.IMPORTANCE_NONE
         )
