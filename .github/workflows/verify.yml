@@ -23,7 +23,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - uses: android-actions/setup-android@v3
+      # The legacy `tools` SDK package is no longer published by Google.
+      # v4 with an explicit package list avoids requesting it.
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
       - name: Restore Firebase public app config
         env:
           GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
