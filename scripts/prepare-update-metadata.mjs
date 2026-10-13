@@ -1,0 +1,16 @@
+import {readFileSync,writeFileSync,mkdirSync} from "node:fs";
+import {createHash} from "node:crypto";
+const [codeArg,name]=process.argv.slice(2),code=Number(codeArg);
+if(!Number.isSafeInteger(code)||code<1||!/^[0-9]+(?:\.[0-9]+){1,3}$/.test(name||""))throw Error("Use a numeric version code and stable version name.");
+const file="artifacts/KITTY-AI-"+name+".apk",url="https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-"+name+".apk";
+const local=readFileSync(file),digest=createHash("sha256").update(local).digest("hex");
+const response=await fetch(url,{redirect:"error",signal:AbortSignal.timeout(60000)});
+if(response.status!==200||!(response.headers.get("content-type")||"").includes("android.package-archive"))throw Error("Public APK is not available with the expected MIME type.");
+const remote=Buffer.from(await response.arrayBuffer());
+if(remote.length!==local.length||createHash("sha256").update(remote).digest("hex")!==digest)throw Error("Public APK differs from the signed local file.");
+const notes="KITTY2.0: cleaner chat interface, private local history search, drafts preserved during screen recreation, reply copying, Kitty Corp membership/support hub and source-attributed public reference retrieval. Existing Google login, personal memory, speech, notifications and verified updates are preserved. The public reference library is not model fine-tuning.";
+const release={versionCode:code,versionName:name,url,sha256:digest,notes};
+const quote=s=>"'"+s.replaceAll("'","''")+"'";
+const sql="UPDATE settings SET data=json_set(data,'$.release',json("+quote(JSON.stringify(release))+")) WHERE id=1 AND json_extract(data,'$.release.versionCode')<="+code+" RETURNING json_extract(data,'$.release') AS release;\n";
+mkdirSync(".tooling/release",{recursive:true});writeFileSync(".tooling/release/update.sql",sql);
+console.log(JSON.stringify({verifiedPublicDownload:true,bytes:remote.length,release,sqlFile:".tooling/release/update.sql"}));

@@ -1,0 +1,20 @@
+// Shared public-reference chunks only; no personal chats. Exact owner publishes.
+rules_version = '2';
+service cloud.firestore {
+ match /databases/{database}/documents {
+  function signedIn() { return request.auth != null && request.auth.token.email_verified == true && request.auth.token.firebase.sign_in_provider == 'google.com'; }
+  function owner() { return signedIn() && request.auth.uid == 'WCppLHxijDcNqVTxAQkONUrApFm1' && request.auth.token.email == 'viratanand1221@gmail.com'; }
+  match /kitty_library/{doc} {
+   allow get: if signedIn() && resource.data.published == true;
+   allow list: if signedIn() && request.query.limit != null && request.query.limit <= 4 && resource.data.published == true;
+   function valid() { return request.resource.data.title is string && request.resource.data.title.size() <= 180 && request.resource.data.content is string && request.resource.data.content.size() <= 85000 && request.resource.data.source is string && request.resource.data.license is string && request.resource.data.keywords is list && request.resource.data.keywords.size() <= 32 && request.resource.data.published is bool; }
+   allow create, update: if owner() && valid();
+   allow delete: if owner();
+  }
+  match /kitty_library_meta/{doc} {
+   function validMeta() { return request.resource.data.contentBytes is int && request.resource.data.contentBytes >= 0 && request.resource.data.contentBytes <= 500000000 && request.resource.data.documents is int && request.resource.data.documents <= 18000; }
+   allow read: if signedIn(); allow create, update: if owner() && validMeta(); allow delete: if owner();
+  }
+  match /{document=**} { allow read, write: if false; }
+ }
+}

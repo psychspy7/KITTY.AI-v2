@@ -25,6 +25,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalClipboard
+import androidx.compose.ui.platform.ClipEntry
+import android.content.ClipData
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -52,15 +56,15 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filterNotNull
 
-private val Midnight = Color(0xFF151518)
-private val Lilac = Color(0xFFD0B4FF)
+private val Midnight = Color(0xFF101116)
+private val Lilac = Color(0xFFC9BAFF)
 private val KittyColors =
     darkColorScheme(
         primary = Lilac,
         onPrimary = Color(0xFF2C1645),
         secondary = Color(0xFFE8BEDD),
         background = Midnight,
-        surface = Color(0xFF1B1B1F),
+        surface = Color(0xFF181A21),
         surfaceContainer = Color(0xFF252529),
         surfaceContainerHigh = Color(0xFF2E2E34),
         onBackground = Color(0xFFF4EEFF),
@@ -93,7 +97,7 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
             vm.setForeground(false)
         }
     }
-    MaterialTheme(colorScheme = KittyColors, typography = Typography()) {
+    MaterialTheme(colorScheme = KittyColors, typography = Typography(bodyLarge = androidx.compose.ui.text.TextStyle(fontSize = 16.sp, lineHeight = 26.sp), bodyMedium = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, lineHeight = 22.sp))) {
         val snackbar = remember { SnackbarHostState() }
         LaunchedEffect(state.error) {
             state.error?.let {
@@ -126,6 +130,7 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
                             "History" to Icons.Outlined.History,
                             "Memory" to Icons.Outlined.AutoAwesome,
                             "Inbox" to Icons.Outlined.Inbox,
+                            "Kitty Corp" to Icons.Outlined.Language,
                             "Settings" to Icons.Outlined.Settings,
                         )
                         .forEach { (label, icon) ->
@@ -164,11 +169,12 @@ fun KittyApp(vm: KittyViewModel, activity: Activity) {
                     else if (state.uid == null) LoginScreen(state, vm, activity)
                     else
                         when (state.screen) {
-                            "Chat" -> ChatScreen(state, vm)
+                            "Chat" -> key(state.uid, state.selected) { ChatScreen(state, vm) }
                             "History" -> HistoryScreen(state, vm)
                             "Memory" -> MemoryScreen(state, vm)
                             "Inbox" -> InboxScreen(state, vm)
                             "Settings" -> SettingsScreen(state, vm, activity)
+                            "Kitty Corp" -> CorpHub(state)
                         }
                 }
             }
@@ -468,7 +474,7 @@ private fun LoginScreen(state: KittyState, vm: KittyViewModel, activity: Activit
 
 @Composable
 internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
-    var draft by remember(state.uid, state.selected) { mutableStateOf("") }
+    var draft by rememberSaveable(state.uid, state.selected) { mutableStateOf("") }
     var following by remember(state.uid, state.selected) { mutableStateOf(true) }
     var userScroll by remember(state.uid, state.selected) { mutableStateOf(false) }
     val chatScope = rememberCoroutineScope()
@@ -497,6 +503,26 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
             draft = ""
             keyboard?.hide()
             focus.clearFocus()
+        }
+    }
+    val membership=state.membership
+    var remaining by remember(state.uid,membership) { mutableStateOf(membership?.freeRemainingSeconds ?: 300) }
+    LaunchedEffect(state.uid,membership) {
+        if(membership!=null && membership.freeWindowEnabled && !membership.paid && membership.freeStarted) {
+            val start=android.os.SystemClock.elapsedRealtime()
+            while(true) {
+                remaining=(membership.freeRemainingSeconds-((android.os.SystemClock.elapsedRealtime()-start)/1000).toInt()).coerceAtLeast(0)
+                if(remaining in 1..60)vm.showPlanReminder()
+                if(remaining==0)break
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+    }
+    LaunchedEffect(state.uid,membership?.resetAt) {
+        val reset=membership?.resetAt ?: return@LaunchedEffect
+        if(membership.freeWindowEnabled) {
+            kotlinx.coroutines.delay((reset-System.currentTimeMillis()).coerceAtLeast(1000))
+            vm.refreshMembership()
         }
     }
     val messages = state.data.messages.filter { it.conversation_id == state.selected }
@@ -544,7 +570,7 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
                     Modifier.size(60.dp).clip(RoundedCornerShape(18.dp)),
                 )
                 Spacer(Modifier.height(24.dp))
-                Text("What’s on your mind?", fontSize = 27.sp, fontWeight = FontWeight.Medium)
+                Text("A little clarity.\nA little KITTY.", fontSize = 32.sp, lineHeight = 40.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(12.dp))
                 Text(
                     "Hey, ${state.name.ifBlank { "friend" }}. Let’s figure it out.",
@@ -552,7 +578,7 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(28.dp))
-                listOf("Help me think something through", "Make a plan for my day").forEach { text
+                listOf("Help me think something through", "Make a plan for my day", "Explain something simply").forEach { text
                     ->
                     SuggestionChip(
                         onClick = { draft = text },
@@ -566,8 +592,8 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
             LazyColumn(
                 state = list,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp),
             ) {
                 items(messages, key = { it.id }) { message -> MessageCard(message, state, vm) }
                 item(key = "chat-tail") { Spacer(Modifier.height(1.dp)) }
@@ -582,6 +608,13 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
                 }) { Icon(Icons.Outlined.ArrowDownward, null, Modifier.size(16.dp)); Spacer(Modifier.width(6.dp)); Text("Jump to latest", fontSize = 12.sp) }
             }
         }
+        if(state.chatLimitReached || (membership?.freeWindowEnabled==true && membership.freeStarted && !membership.paid && remaining==0)) {
+            CorpChatInvitation(state.chatLimitMessage ?: "Today\u2019s free chat window has ended. It resets at midnight UTC. KITTY Plus is \u20b999/month with 100 chats and 10 cloud-speech requests a day.", state.membership?.membershipAvailable==true, null)
+        } else if(state.planReminder) {
+            CorpChatInvitation("One free minute left, friend. Want more room to chat? KITTY Plus is \u20b999/month. No pressure\u2014your saved chats stay here.", state.membership?.membershipAvailable==true, vm::dismissPlanReminder)
+        } else if(!state.data.feedbackDismissed && messages.size<=2 && !state.busy) {
+            CorpChatInvitation("Enjoying KITTY AI? Visit KITTY CORP and tell us what you think. Your feedback helps us improve.", false, vm::dismissFeedback)
+        }
         AnimatedVisibility(state.syncing) {
             LinearProgressIndicator(Modifier.fillMaxWidth(), color = Lilac)
         }
@@ -589,7 +622,8 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
             Modifier.fillMaxWidth()
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .clip(RoundedCornerShape(26.dp))
-                .background(Color(0xFF28282D))
+                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), RoundedCornerShape(26.dp))
+                .background(MaterialTheme.colorScheme.surface)
                 .padding(start = 3.dp, end = 7.dp),
             verticalAlignment = Alignment.Bottom,
         ) {
@@ -647,8 +681,8 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
                 onClick = { if (state.busy) vm.stop() else sendDraft() },
                 enabled = state.busy || (!state.syncing && draft.isNotBlank()),
                 modifier =
-                    Modifier.padding(bottom = 8.dp)
-                        .size(38.dp)
+                    Modifier.padding(bottom = 4.dp)
+                        .size(48.dp)
                         .background(
                             if (state.busy || draft.isNotBlank()) Color(0xFFF0EDF5)
                             else Color(0xFF45454C),
@@ -682,6 +716,8 @@ internal fun ChatScreen(state: KittyState, vm: KittyViewModel) {
 
 @Composable
 private fun MessageCard(message: ChatMessage, state: KittyState, vm: KittyViewModel) {
+    val clipboard = LocalClipboard.current
+    val copyScope = rememberCoroutineScope()
     val assistant = message.role == "assistant"
     Column(
         Modifier.fillMaxWidth(),
@@ -712,6 +748,9 @@ private fun MessageCard(message: ChatMessage, state: KittyState, vm: KittyViewMo
                             Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                    IconButton(onClick = { copyScope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("KITTY reply", message.text))) } }) {
+                        Icon(Icons.Outlined.ContentCopy, "Copy reply", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (state.data.consent)
                         TextButton(onClick = { vm.share(message) }) {
@@ -751,16 +790,23 @@ private fun SectionHeading(title: String, subtitle: String) {
 
 @Composable
 private fun HistoryScreen(state: KittyState, vm: KittyViewModel) {
-    var deleting by remember { mutableStateOf<String?>(null) }
+    var deleting by remember(state.uid) { mutableStateOf<String?>(null) }
+    var query by rememberSaveable(state.uid) { mutableStateOf("") }
+    val visibleChats = remember(state.data.conversations, state.data.messages, query) {
+        val matching = matchingConversationIds(state.data.conversations, state.data.messages, query)
+        state.data.conversations.filter { it.id in matching }
+    }
     Column(Modifier.fillMaxSize().padding(24.dp)) {
         SectionHeading("A thought, saved.", "Pick up where you left off.")
         OutlinedButton(onClick = vm::refresh, enabled = !state.syncing) {
             Icon(Icons.Outlined.Sync, null, Modifier.size(16.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Sync history")
+            Text("Refresh context")
         }
+        Spacer(Modifier.height(14.dp))
+        OutlinedTextField(query, { query = it }, label = { Text("Search your chats") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp))
         Spacer(Modifier.height(18.dp))
-        if (state.data.conversations.isEmpty())
+        if (visibleChats.isEmpty())
             EmptyCard(
                 Icons.Outlined.History,
                 "Your story starts here.",
@@ -768,7 +814,7 @@ private fun HistoryScreen(state: KittyState, vm: KittyViewModel) {
             )
         else
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(state.data.conversations, key = { it.id }) { chat ->
+                items(visibleChats, key = { it.id }) { chat ->
                     Surface(
                         onClick = { vm.openChat(chat.id) },
                         shape = RoundedCornerShape(16.dp),
@@ -806,7 +852,7 @@ private fun HistoryScreen(state: KittyState, vm: KittyViewModel) {
             title = { Text("Delete this conversation?") },
             text = {
                 Text(
-                    "This removes it from your account’s backend history and this device, including shared examples."
+                    "This removes the conversation from this device, its cloud context and any examples you explicitly shared."
                 )
             },
             confirmButton = {

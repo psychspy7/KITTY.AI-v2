@@ -1,0 +1,11 @@
+CREATE TABLE commerce_settings (id INTEGER PRIMARY KEY CHECK(id=1), data TEXT NOT NULL);
+CREATE TABLE commerce_plans (id TEXT PRIMARY KEY, product TEXT NOT NULL CHECK(product IN ('kitty','lisa')), data TEXT NOT NULL);
+INSERT INTO commerce_plans VALUES('kitty-plus','kitty','{"name":"KITTY Plus","amount":9900,"months":1,"chatLimit":100,"speechLimit":10,"approved":true,"enabled":false,"benefits":["100 chat requests per day","10 cloud-speech requests per day","Personal memory and saved context"]}');
+INSERT INTO commerce_plans VALUES('lisa-premium','lisa','{"name":"LISA Premium","amount":null,"months":1,"chatLimit":100,"speechLimit":10,"approved":false,"enabled":false,"benefits":["Separate LISA membership, benefits awaiting confirmation"]}');
+CREATE TABLE commerce_orders (id TEXT PRIMARY KEY, uid TEXT NOT NULL, product TEXT NOT NULL, plan_id TEXT NOT NULL, terms TEXT NOT NULL, mode TEXT NOT NULL CHECK(mode IN ('test','live')), provider_order_id TEXT UNIQUE, provider_key_id TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE INDEX commerce_orders_user ON commerce_orders(uid,created_at);
+CREATE TABLE commerce_payments (payment_id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES commerce_orders(id), status TEXT NOT NULL, updated_at INTEGER NOT NULL);
+CREATE TABLE commerce_grants (order_id TEXT PRIMARY KEY REFERENCES commerce_orders(id), payment_id TEXT UNIQUE NOT NULL, uid TEXT NOT NULL, product TEXT NOT NULL, mode TEXT NOT NULL, chat_limit INTEGER NOT NULL, speech_limit INTEGER NOT NULL, starts_at INTEGER NOT NULL, ends_at INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0,1)));
+CREATE INDEX commerce_access ON commerce_grants(uid,product,mode,ends_at);
+CREATE TABLE commerce_webhooks (event_id TEXT PRIMARY KEY, processed_at INTEGER NOT NULL);
+CREATE TABLE free_chat_windows (uid TEXT NOT NULL, day TEXT NOT NULL, started_at INTEGER NOT NULL, PRIMARY KEY(uid,day));

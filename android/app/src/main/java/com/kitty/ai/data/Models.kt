@@ -84,4 +84,19 @@ data class LocalSnapshot(
     val deviceSpeech: Boolean = true,
     val historyMigrated: Boolean = false,
     val usageInsights: Boolean = false,
+    val feedbackDismissed: Boolean = false,
+    val lastPlanReminderDay: String = "",
+)
+
+@Serializable
+data class MembershipInfo(
+    val paid:Boolean=false,
+    val expiresAt:Long=0,
+    val freeRemainingSeconds:Int=300,
+    val freeStarted:Boolean=false,
+    val freeWindowEnabled:Boolean=false,
+    val resetAt:Long=0,
+    val chatLimit:Int=0,
+    val speechLimit:Int=0,
+    val membershipAvailable:Boolean=false,
 )

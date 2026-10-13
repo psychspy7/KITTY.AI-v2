@@ -1,0 +1,18 @@
+{
+  "source": "https://huggingface.co/datasets/Salesforce/wikitext",
+  "revision": "b08601e04326c79dfdd32d625aee71d232d685c3",
+  "license": "CC-BY-SA-3.0 / GFDL",
+  "contentBytes": 500000000,
+  "documents": 10056,
+  "targetBytes": 500000000,
+  "downloadBytes": 314076578,
+  "deduplicated": true,
+  "maxChunkBytes": 62000,
+  "preparedAt": "2026-10-13T14:24:04Z",
+  "fineTuned": false,
+  "maxStoredChunkBytes": 66915,
+  "packedWithPerArticleAttribution": true,
+  "uploadedAt": "2026-10-13T15:12:52.033Z",
+  "database": "(default)",
+  "region": "asia-south1"
+}

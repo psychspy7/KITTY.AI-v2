@@ -71,7 +71,7 @@ beforeAll(async () => {
     VAULT_KEY: btoa("12345678901234567890123456789012"),
     RELEASE_REPOSITORY: "psychspy7/KITTY.AI-v2",
   };
-  for (const sql of ["0001.sql", "0002_login_and_free_ai.sql", "0003_provider_checks_and_voices.sql", "0004_context_and_local_history.sql"].map(file => readFileSync(
+  for (const sql of ["0001.sql", "0002_login_and_free_ai.sql", "0003_provider_checks_and_voices.sql", "0004_context_and_local_history.sql", "0005_memberships.sql"].map(file => readFileSync(
     new URL(`../migrations/${file}`, import.meta.url),
     "utf8",
   )).join("\n")

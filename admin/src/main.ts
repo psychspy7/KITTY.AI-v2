@@ -1,4 +1,5 @@
 import {renderProviders,stopProviderPreview} from "./providerPanel";
+import {renderMemberships} from "./membershipPanel";
 import { initializeApp } from "firebase/app";
 import {
   getAuth,
@@ -59,7 +60,7 @@ function field(label: string, id: string, value: unknown, type = "text") {
 }
 function shell(content: string) {
   stopProviderPreview();
-  app.innerHTML = `<aside><a class="brand" href="/"><img src="/kitty-icon.png" alt="KITTY"><span>KITTY<span class="brand-sub">CONTROL ROOM</span></span></a><div class="nav-label">WORKSPACE</div><nav>${["overview", "providers", "personality", "limits", "announcements", "updates", "examples"].map((n) => `<button data-section="${n}" class="${section === n ? "active" : ""}">${n[0].toUpperCase() + n.slice(1)}</button>`).join("")}</nav><div class="aside-footer"><span class="live-dot"></span> Owner session<br><small>${escape(user?.email)}</small><button id="logout">Sign out</button></div></aside><main><header><span class="eyebrow">KITTY CORP / ADMIN</span><span class="badge">PRIVATE</span></header><div id="status" class="status" role="status"></div>${content}<footer>Created by Virat · <a href="https://kittycorp.vercel.app/" target="_blank" rel="noopener noreferrer">Made by Kitty Corp</a>. Keys stay on the backend.</footer></main>`;
+  app.innerHTML = `<aside><a class="brand" href="/"><img src="/kitty-icon.png" alt="KITTY"><span>KITTY<span class="brand-sub">CONTROL ROOM</span></span></a><div class="nav-label">WORKSPACE</div><nav>${["overview", "providers", "personality", "limits", "announcements", "updates", "memberships", "knowledge", "examples"].map((n) => `<button data-section="${n}" class="${section === n ? "active" : ""}">${n[0].toUpperCase() + n.slice(1)}</button>`).join("")}</nav><div class="aside-footer"><span class="live-dot"></span> Owner session<br><small>${escape(user?.email)}</small><button id="logout">Sign out</button></div></aside><main><header><span class="eyebrow">KITTY CORP / ADMIN</span><span class="badge">PRIVATE</span></header><div id="status" class="status" role="status"></div>${content}<footer>Created by Virat · <a href="https://kittycorp.vercel.app/" target="_blank" rel="noopener noreferrer">Made by Kitty Corp</a>. Keys stay on the backend.</footer></main>`;
   document.querySelectorAll<HTMLButtonElement>("[data-section]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -124,7 +125,13 @@ async function load() {
       try { const result=await api("admin/context/health");notify(result.connected?"Context connection passed.":"Context connection needs attention."); }
       catch(e){notify((e as Error).message,true);}finally{button.disabled=false;}
     };
-  } else if (section === "providers") {
+  } else if (section === "memberships") {
+    await renderMemberships({shell,api,notify});
+  } else if (section === "knowledge") {
+    const k=await api("admin/knowledge");
+    shell(title("Reference library", "Published public knowledge; separate from personal memory and training.") + `<article><h3>${k.ready ? "Library available" : "Import pending"}</h3><p>${Number(k.contentBytes||0).toLocaleString()} reference bytes · ${Number(k.documents||0).toLocaleString()} chunks</p><p>Retrieval ${k.enabled ? "enabled" : "paused"}. Groq model weights are unchanged.</p><p>Source: Salesforce WikiText / Wikipedia contributors. Historical corpus, CC-BY-SA-3.0/GFDL. Excerpts are cited and treated as data.</p><p>Use the included preparation/import tools for reviewed dataset updates. Stay within the Firebase quotas in the release guide.</p></article>`); return;
+  }
+  if (section === "providers") {
     renderProviders({config,providers,shell,api,load,saveConfig,notify});
   } else if (section === "personality") {
     shell(

@@ -30,10 +30,14 @@ const privateNames = new Set([
 ]);
 const approved = [
   "README.md",
+  "AGENTS.md",
+  "CONTINUE-HERE.md",
+  "knowledge",
   ".gitignore",
   ".gitattributes",
   ".firebaserc",
   "firebase.json",
+  "firebase",
   "package.json",
   "package-lock.json",
   ".github",

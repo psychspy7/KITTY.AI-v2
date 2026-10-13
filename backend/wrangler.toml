@@ -8,11 +8,15 @@ workers_dev = true
 crons = ["0 * * * *"]
 
 [vars]
+KNOWLEDGE_ENABLED = "true"
 FIREBASE_PROJECT_ID = "kittyai-f743c"
 OWNER_EMAIL = "viratanand1221@gmail.com"
 RELEASE_REPOSITORY = "psychspy7/KITTY.AI-v2"
 GOOGLE_WEB_CLIENT_ID = "34203306703-u82o8grcs0qr2j30dgsf84bue2v7is22.apps.googleusercontent.com"
 HISTORY_MODE = "local"
+MEMBERSHIPS_FREE_WINDOW = "enabled"
+# Test-mode payments never grant production access.
+ALLOW_TEST_MEMBERSHIPS = "false"
 
 [[hyperdrive]]
 binding = "CONTEXT"

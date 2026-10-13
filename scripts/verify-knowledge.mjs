@@ -1,0 +1,13 @@
+import {readFileSync,writeFileSync} from 'node:fs';import {join} from 'node:path';import {fileURLToPath} from 'node:url';import {createRequire} from 'node:module';
+const root=fileURLToPath(new URL('../',import.meta.url));process.env.XDG_CONFIG_HOME=join(root,'.tooling/account-config');const require=createRequire(import.meta.url),cli=join(process.env.APPDATA,'npm/node_modules/firebase-tools');const auth=require(join(cli,'lib/auth.js')),{requireAuth}=require(join(cli,'lib/requireAuth.js')),{Client}=require(join(cli,'lib/apiv2.js'));const account=auth.getGlobalDefaultAccount();if(account?.user?.email!=='viratanand1221@gmail.com')throw Error('Owner session required');await requireAuth({project:'kittyai-f743c',nonInteractive:true,user:account.user,tokens:account.tokens});
+const api=new Client({urlPrefix:'https://firestore.googleapis.com',auth:true}),base='projects/kittyai-f743c/databases/(default)/documents';
+const m=(await api.get(`/v1/${base}/kitty_library_meta/current`,{skipLog:{body:true,resBody:true}})).body.fields;
+if(Number(m.contentBytes.integerValue)!==500000000||Number(m.documents.integerValue)!==10056)throw Error('Unexpected library totals');
+const query={structuredQuery:{from:[{collectionId:'kitty_library'}],where:{compositeFilter:{op:'AND',filters:[{fieldFilter:{field:{fieldPath:'published'},op:'EQUAL',value:{booleanValue:true}}},{fieldFilter:{field:{fieldPath:'keywords'},op:'ARRAY_CONTAINS_ANY',value:{arrayValue:{values:[{stringValue:'valkyria'}]}}}}]}},limit:4}};
+const rows=(await api.post(`/v1/${base}:runQuery`,query,{skipLog:{body:true,resBody:true}})).body;
+const docs=rows.filter(x=>x.document);if(!docs.length||docs.length>4)throw Error('Indexed lookup failed');
+if(!docs.some(x=>JSON.parse(x.document.fields.content.stringValue).some(e=>e.content.toLowerCase().includes('valkyria'))))throw Error('Source content does not match lookup');
+const anonymous=await fetch('https://firestore.googleapis.com/v1/'+docs[0].document.name,{signal:AbortSignal.timeout(20000)});
+if(![401,403].includes(anonymous.status))throw Error('Anonymous library access was not denied');
+const result={checkedAt:new Date().toISOString(),contentBytes:500000000,documents:10056,indexedLookup:true,returnedDocuments:docs.length,anonymousStatus:anonymous.status,modelFineTuned:false};
+writeFileSync(join(root,'.tooling/knowledge/live-validation.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));

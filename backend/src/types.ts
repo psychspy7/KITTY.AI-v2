@@ -1,4 +1,9 @@
 export interface Env {
+  KNOWLEDGE_ENABLED?: string;
+  WEBSITE_GATEWAY_TOKEN?: string;
+  COMMERCE_GATEWAY_TOKEN?: string;
+  ALLOW_TEST_MEMBERSHIPS?: string;
+  MEMBERSHIPS_FREE_WINDOW?: string;
   DB: D1Database;
   ASSETS: Fetcher;
   FIREBASE_PROJECT_ID: string;
@@ -32,6 +37,7 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message);
   }

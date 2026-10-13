@@ -20,6 +20,8 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
+class ApiFailure(val status:Int, val errorCode:String, message:String): IllegalStateException(message)
+
 class ApiClient(private val auth: FirebaseAuth) {
     val json = Json { ignoreUnknownKeys = true }
     private val client =
@@ -71,7 +73,7 @@ class ApiClient(private val auth: FirebaseAuth) {
                 withContext(Dispatchers.IO) {
                     call.execute().use { response ->
                         val data = response.body?.string().orEmpty()
-                        if (!response.isSuccessful) error(errorMessage(data, response.code))
+                        if (!response.isSuccessful) throw failure(data, response.code)
                         data
                     }
                 }
@@ -110,7 +112,7 @@ class ApiClient(private val auth: FirebaseAuth) {
                 withContext(Dispatchers.IO) {
                     call.execute().use { response ->
                         if (!response.isSuccessful)
-                            error(errorMessage(response.body?.string().orEmpty(), response.code))
+                            throw failure(response.body?.string().orEmpty(), response.code)
                         val source = response.body?.source() ?: error("Empty reply.")
                         val events = ReplyEvents()
                         var done = false
@@ -153,9 +155,10 @@ class ApiClient(private val auth: FirebaseAuth) {
         }
     }
 
-    private fun errorMessage(data: String, code: Int) =
-        runCatching { json.parseToJsonElement(data).jsonObject["error"]?.jsonPrimitive?.content }
-            .getOrNull() ?: "Connection failed ($code). Try again."
+    private fun failure(data: String, code: Int): ApiFailure {
+        val payload = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull()
+        return ApiFailure(code, payload?.get("code")?.jsonPrimitive?.content.orEmpty(), payload?.get("error")?.jsonPrimitive?.content ?: "Connection failed ($code). Try again.")
+    }
 
     fun cancelAll() = client.dispatcher.cancelAll()
 }

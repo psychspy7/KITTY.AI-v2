@@ -1,0 +1,30 @@
+import {readdirSync,existsSync,writeFileSync} from 'node:fs';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createRequire} from 'node:module';
+const root=fileURLToPath(new URL('../',import.meta.url));
+process.env.XDG_CONFIG_HOME=join(root,'.tooling/account-config');
+async function main(){
+ const cache=join(root,'.tooling/npm-cache/_npx');
+ const candidates=existsSync(cache)?readdirSync(cache).map(n=>join(cache,n,'node_modules/firebase-tools')):[];
+ candidates.push(join(process.env.APPDATA||'', 'npm/node_modules/firebase-tools'));
+ const cliRoot=candidates.find(p=>existsSync(join(p,'lib/auth.js')));
+ if(!cliRoot)throw Error('Firebase CLI session unavailable.');
+ const require=createRequire(import.meta.url);
+ const auth=require(join(cliRoot,'lib/auth.js'));
+ const {requireAuth}=require(join(cliRoot,'lib/requireAuth.js'));
+ const {Client}=require(join(cliRoot,'lib/apiv2.js'));
+ const account=auth.getGlobalDefaultAccount();
+ if(account?.user?.email!=='viratanand1221@gmail.com')throw Error('Exact owner Firebase sign-in is required.');
+ const project='kittyai-f743c',domain='kittycorp.vercel.app';
+ await requireAuth({project,nonInteractive:true,user:account.user,tokens:account.tokens});
+ const api=new Client({urlPrefix:'https://identitytoolkit.googleapis.com',auth:true});
+ const path=`/admin/v2/projects/${project}/config`;
+ const original=(await api.get(path)).body;
+ if(!original.authorizedDomains?.includes(domain))await api.patch(path,{authorizedDomains:[...new Set([...(original.authorizedDomains||[]),domain])]},{queryParams:{updateMask:'authorizedDomains'}});
+ const current=(await api.get(path)).body;
+ if(!current.authorizedDomains?.includes(domain)||!original.authorizedDomains.every(d=>current.authorizedDomains.includes(d)))throw Error('Firebase domain verification failed.');
+ console.log('PASS KITTY CORP website hostname authorized for existing Firebase Google login; existing domains preserved.');
+ writeFileSync(join(root,'.tooling/firebase-commerce-domain-status.json'),JSON.stringify({project,domain,authorized:true,checkedAt:new Date().toISOString()},null,2));
+}
+main().catch(()=>{console.error('Firebase website-domain setup needs attention; no credentials printed. Check the exact owner CLI sign-in.');process.exitCode=1;});

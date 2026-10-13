@@ -40,6 +40,10 @@ data class KittyState(
     val showConsent: Boolean = false,
     val showNotificationPrompt: Boolean = false,
     val notificationsAllowed: Boolean = false,
+    val membership: MembershipInfo? = null,
+    val chatLimitReached: Boolean = false,
+    val chatLimitMessage: String? = null,
+    val planReminder: Boolean = false,
 )
 
 class KittyViewModel(application: Application) : AndroidViewModel(application) {
@@ -126,6 +130,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
             consumeAlert()
+            refreshMembership()
             refresh()
             if (foreground) AlertScheduler.checkNow(getApplication(), account.uid)
         }
@@ -144,6 +149,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                 mutable.value.uid?.let {
                     AlertScheduler.activate(getApplication(), it, false)
                     AlertScheduler.checkNow(getApplication(), it)
+                    refreshMembership()
                 }
         } else if (mutable.value.browserSigningIn) {
             // Browsers own the foreground during Google login. Cached apps can lose network access.
@@ -289,6 +295,39 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
         mutable.update { it.copy(error = null) }
     }
 
+    fun dismissFeedback() {
+        val uid=mutable.value.uid ?: return
+        val generation=epoch
+        mutable.update { it.copy(data=it.data.copy(feedbackDismissed=true)) }
+        viewModelScope.launch { save(uid,generation) }
+    }
+
+    fun dismissPlanReminder() { mutable.update { it.copy(planReminder=false) } }
+
+    fun showPlanReminder() {
+        val uid=mutable.value.uid ?: return
+        val day=java.time.Instant.now().atOffset(java.time.ZoneOffset.UTC).toLocalDate().toString()
+        if(mutable.value.data.lastPlanReminderDay==day)return
+        val generation=epoch
+        mutable.update { it.copy(planReminder=true,data=it.data.copy(lastPlanReminderDay=day)) }
+        viewModelScope.launch { save(uid,generation) }
+    }
+
+    fun refreshMembership() {
+        val uid=mutable.value.uid ?: return
+        val generation=epoch
+        viewModelScope.launch {
+            try {
+                val membership=api.get<MembershipInfo>(uid,"memberships/me")
+                if(epoch==generation) mutable.update {
+                    val accessChanged=(membership.paid && it.membership?.paid!=true) || (it.membership!=null && membership.resetAt!=it.membership.resetAt)
+                    it.copy(membership=membership,chatLimitReached=if(accessChanged)false else it.chatLimitReached,chatLimitMessage=if(accessChanged)null else it.chatLimitMessage,planReminder=if(membership.paid || accessChanged)false else it.planReminder)
+                }
+            } catch(e:CancellationException) { throw e }
+              catch(_:Exception) { /* The existing app remains usable before the coordinated backend rollout. */ }
+        }
+    }
+
     fun dismissUpdate() {
         mutable.update { it.copy(update = null) }
     }
@@ -423,6 +462,8 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
             value.copy(
                 busy = true,
                 error = null,
+                chatLimitReached = false,
+                chatLimitMessage = null,
                 data =
                     value.data.copy(
                         messages =
@@ -468,6 +509,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                 throw e
             } catch (e: Exception) {
                 status = "failed"
+                if(epoch==generation && e is ApiFailure && e.status==429)mutable.update { it.copy(chatLimitReached=true,chatLimitMessage=e.message) }
                 fail(e, generation)
             } finally {
                 if (epoch == generation) {
@@ -485,6 +527,7 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     withContext(NonCancellable) { save(uid, generation) }
                     if (epoch == generation) insights.measured(UsageInsights.Operation.REPLY, android.os.SystemClock.elapsedRealtime() - replyStarted, when(status) { "complete" -> UsageInsights.Outcome.COMPLETE; "cancelled" -> UsageInsights.Outcome.CANCELLED; else -> UsageInsights.Outcome.FAILED })
+                    if (epoch == generation) refreshMembership()
                     if (epoch == generation && status == "complete") {
                         mutable.value.data.messages
                             .find { it.id == assistant.id }
@@ -672,6 +715,8 @@ class KittyViewModel(application: Application) : AndroidViewModel(application) {
                                 deviceSpeech = it.data.deviceSpeech,
                                 usageInsights = it.data.usageInsights,
                                 historyMigrated = it.data.historyMigrated,
+                                feedbackDismissed = it.data.feedbackDismissed,
+                                lastPlanReminderDay = it.data.lastPlanReminderDay,
                             ),
                         busy = false,
                         syncing = false,

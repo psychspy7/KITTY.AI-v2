@@ -1,3 +1,7 @@
+## KITTY2.0 handover
+
+See CONTINUE-HERE.md, docs/HANDOVER-2.0.md, docs/CONTINUATION-PROMPT.txt and docs/RELEASE-2.0.md for the final verified release and continuation instructions. Public reference retrieval is separate from fine-tuning.
+
 # KITTY AI
 
 A native Kotlin + Jetpack Compose companion created by **Virat with the help of Kitty Corp**. Android package: `com.kitty.ai`.
@@ -6,7 +10,7 @@ The complete source includes the Android app, Cloudflare Worker API, D1 migratio
 
 **Start with [the beginner guide](docs/BEGINNER-GUIDE.md).** Read [the current validation report](docs/VALIDATION-1.7.1.md) before treating a build as production-ready. This project does not embed provider keys in the Android app.
 
-[Download KITTY AI 1.7.1](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-1.7.1.apk) · [Owner console](https://kitty-ai-v2.kitty-ai.workers.dev) · [Deployment status](docs/DEPLOYMENT.md). The signed release is connected to the deployed backend. Firebase Google login, authorized domain, release fingerprints and exact owner UID are configured. Cloudflare free chat is primary, with the saved Groq key preserved as fallback. The console tests real requests before saving; device speech and Cloudflare/ElevenLabs/Fish adapters are included. The browser sign-in page is hosted on the existing Firebase domain, and KITTY completes login when it returns to the foreground.
+[Download KITTY AI 1.8.0](https://kitty-ai-v2.kitty-ai.workers.dev/downloads/KITTY-AI-2.0.0.apk) · [Owner console](https://kitty-ai-v2.kitty-ai.workers.dev) · [Deployment status](docs/DEPLOYMENT.md). The signed release is connected to the deployed backend. Firebase Google login, authorized domain, release fingerprints and exact owner UID are configured. Cloudflare free chat is primary, with the saved Groq key preserved as fallback. The console tests real requests before saving; device speech and Cloudflare/ElevenLabs/Fish adapters are included. The browser sign-in page is hosted on the existing Firebase domain, and KITTY completes login when it returns to the foreground.
 
 ## Architecture
 
@@ -23,7 +27,7 @@ flowchart LR
   A --> L[Private local account cache]
 ```
 
-Firebase provides Authentication and a static Hosting login page; D1 is the selected backend for history and memory. Meow alerts use Android notification channels and account-scoped WorkManager checks; Inbox and update alerts can be delayed by Android battery optimizations. No Firestore, Cloud Functions, Firebase Storage, phone-control APIs or microphone permission are required.
+Firebase provides Authentication and a static Hosting login page; Complete chat history stays on the device; D1 handles operations and membership grants, and Aiven stores bounded summaries/context and memories. Meow alerts use Android notification channels and account-scoped WorkManager checks; Inbox and update alerts can be delayed by Android battery optimizations. No Firestore, Cloud Functions, Firebase Storage, phone-control APIs or microphone permission are required.
 
 ## Source layout
 
