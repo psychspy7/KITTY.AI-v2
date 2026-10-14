@@ -1,4 +1,5 @@
 export interface Env {
+  CORP_CONTEXT_ENABLED?: string;
   KNOWLEDGE_ENABLED?: string;
   WEBSITE_GATEWAY_TOKEN?: string;
   COMMERCE_GATEWAY_TOKEN?: string;

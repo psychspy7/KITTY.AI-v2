@@ -8,6 +8,7 @@ workers_dev = true
 crons = ["0 * * * *"]
 
 [vars]
+CORP_CONTEXT_ENABLED = "true"
 KNOWLEDGE_ENABLED = "true"
 FIREBASE_PROJECT_ID = "kittyai-f743c"
 OWNER_EMAIL = "viratanand1221@gmail.com"

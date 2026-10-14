@@ -49,3 +49,7 @@ On Windows, run `./scripts/install-android-tools.ps1`, then `./scripts/build-and
 An APK build is not evidence of a working production account, model call, Google sign-in or device installation. Those depend on account setup and the checks documented in the validation report. A core prompt can guide a model’s identity, but cannot guarantee perfect resistance to model prompt injection. Credentials and backend authorization never depend on model obedience.
 
 Saving conversations, reviewing examples and fine-tuning are separate processes. No model training job is included or claimed.
+
+## Public KITTY CORP integration
+
+Both KITTY chat routes share public company/product knowledge and official links. Published website excerpts are bounded and cached; private product data is isolated. GET /api/corp is the public shared directory. See docs/CORP-INTEGRATION.md for maintenance and live verification. This backend update works with the existing APK.

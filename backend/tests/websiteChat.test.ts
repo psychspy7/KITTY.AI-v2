@@ -41,6 +41,8 @@ describe("isolated website assistant gateway", () => {
     const options = vi.mocked(env.AI!.run).mock.calls[0][1] as { messages: { role: string; content: string }[]; max_tokens: number };
     expect(options.max_tokens).toBe(128);
     expect(options.messages[0].content).toContain("You cannot log in");
+    expect(options.messages[0].content).toContain("Official public product directory");
+    expect(options.messages[0].content).toContain("SecretChat");
     expect(options.messages[0].content).toContain("Public facts: KITTY builds websites");
     expect(options.messages.at(-1)).toEqual({ role: "user", content: input.question });
     expect((await env.DB.prepare("SELECT kind,count FROM usage").all()).results).toEqual(expect.arrayContaining([{ kind: "website_chat", count: 1 }]));

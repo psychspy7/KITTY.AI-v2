@@ -847,3 +847,21 @@ describe("v1.5 provider checks and speech", () => {
     expect(safeProviderError(new ApiError(429,"Safe rate limit"),"groq").message).toBe("Safe rate limit");
   });
 });
+
+describe("shared company context in the authenticated chat route",()=>{
+  it("adds public product facts behind the existing core and keeps provider streaming intact",async()=>{
+    await ready();env.CORP_CONTEXT_ENABLED="true";
+    const upstream=vi.spyOn(globalThis,"fetch").mockImplementation(async(url,options)=>{
+      if(String(url).startsWith("https://kittycorp.vercel.app/"))return new Response("<main>LISA AI development preview. Official public information from KITTY CORP.</main>",{headers:{"Content-Type":"text/html"}});
+      return providerStream("KITTY CORP builds its own products.");
+    });
+    try{
+      const response=await request(alice,"chat","POST",{requestId:"corp-chat",conversationId:"corp-conversation",text:"What is KITTY CORP and LISA?"});
+      expect(await response.text()).toContain("event: done");await Promise.all(pending);
+      const call=upstream.mock.calls.find(([url])=>String(url).startsWith("https://api.groq.com/"));expect(call).toBeDefined();
+      const payload=JSON.parse(String(call![1]?.body));expect(payload.messages[0].content).toContain(enabled.corePrompt);
+      expect(payload.messages[0].content).toContain("Official public product directory");expect(payload.messages[0].content).toContain("LISA AI development preview");
+      expect(payload.messages[0].content).toContain("no tools to open rooms");expect(payload.messages[0].content).toContain("KITTY trusted update manifest");
+    }finally{env.CORP_CONTEXT_ENABLED=undefined;}
+  });
+});
