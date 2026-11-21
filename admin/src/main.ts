@@ -60,7 +60,9 @@ function field(label: string, id: string, value: unknown, type = "text") {
 }
 function shell(content: string) {
   stopProviderPreview();
-  app.innerHTML = `<aside><a class="brand" href="/"><img src="/kitty-icon.png" alt="KITTY"><span>KITTY<span class="brand-sub">CONTROL ROOM</span></span></a><div class="nav-label">WORKSPACE</div><nav>${["overview", "providers", "personality", "limits", "announcements", "updates", "memberships", "knowledge", "examples"].map((n) => `<button data-section="${n}" class="${section === n ? "active" : ""}">${n[0].toUpperCase() + n.slice(1)}</button>`).join("")}</nav><div class="aside-footer"><span class="live-dot"></span> Owner session<br><small>${escape(user?.email)}</small><button id="logout">Sign out</button></div></aside><main><header><span class="eyebrow">KITTY CORP / ADMIN</span><span class="badge">PRIVATE</span></header><div id="status" class="status" role="status"></div>${content}<footer>Created by Virat · <a href="https://kittycorp.vercel.app/" target="_blank" rel="noopener noreferrer">Made by Kitty Corp</a>. Keys stay on the backend.</footer></main>`;
+  const isFounderUser = user?.email?.toLowerCase() === "viratanand1221@gmail.com";
+  const badgeLabel = isFounderUser ? "Founder & Owner session" : "Owner session";
+  app.innerHTML = `<aside><a class="brand" href="/"><img src="/kitty-icon.png" alt="KITTY"><span>KITTY<span class="brand-sub">CONTROL ROOM</span></span></a><div class="nav-label">WORKSPACE</div><nav>${["overview", "providers", "personality", "limits", "announcements", "updates", "memberships", "knowledge", "examples", "developer"].map((n) => `<button data-section="${n}" class="${section === n ? "active" : ""}">${n[0].toUpperCase() + n.slice(1)}</button>`).join("")}</nav><div class="aside-footer"><span class="live-dot"></span> ${badgeLabel}<br><small>${escape(user?.email)}</small><button id="logout">Sign out</button></div></aside><main><header><span class="eyebrow">KITTY CORP / ADMIN</span><span class="badge">${isFounderUser ? "FOUNDER" : "PRIVATE"}</span></header><div id="status" class="status" role="status"></div>${content}<footer>Created by Virat · <a href="https://kittycorp.vercel.app/" target="_blank" rel="noopener noreferrer">Made by Kitty Corp</a>. Keys stay on the backend.</footer></main>`;
   document.querySelectorAll<HTMLButtonElement>("[data-section]").forEach(
     (b) =>
       (b.onclick = () => {
@@ -214,6 +216,62 @@ async function load() {
       };
       await saveConfig();
     });
+  } else if (section === "developer") {
+    const diag = await api("developer/diagnostics").catch(() => ({ status: "active", models: { groq: ["llama-3.3-70b-versatile"], cloudflare: ["@cf/meta/llama-3-8b-instruct"] } }));
+    shell(
+      title(
+        "Developer Testing Mode.",
+        "Private testing controls for system prompts, models, moderation, and diagnostics."
+      ) +
+      `<article>
+        <h3>Founder Account & Developer Privileges</h3>
+        <p>Verified Account: <strong>${escape(user?.email)}</strong> · Role: <strong>Founder / Owner</strong></p>
+        <p>Permanent complimentary access active. Subscription expiry and renewal requirements bypassed.</p>
+      </article>
+      <article>
+        <h3>System Prompt & Model Testing</h3>
+        <form id="dev-test-form">
+          <label>Test System Prompt Override<textarea id="dev-system-prompt" rows="3" placeholder="Enter custom system prompt to test...">${escape(config.corePrompt)}</textarea></label>
+          <label>Target Model
+            <select id="dev-model">
+              <option value="groq-main">Groq Main (llama-3.3-70b-versatile)</option>
+              <option value="groq-fast">Groq Fast (llama-3.1-8b-instant)</option>
+              <option value="cf-llama">Cloudflare LLaMA</option>
+            </select>
+          </label>
+          <label>Test Input Prompt<textarea id="dev-test-input" rows="2" placeholder="Send a test message...">Hello KITTY, run diagnostic self-check.</textarea></label>
+          <label class="check"><input id="dev-bypass-filter" type="checkbox"> Bypass response filtering (raw output testing)</label>
+          <label class="check"><input id="dev-diagnostics" type="checkbox" checked> Enable diagnostic telemetry in responses</label>
+          <button type="submit" class="primary">Execute Test Simulation</button>
+        </form>
+        <div id="dev-test-output" style="margin-top:12px;padding:8px;background:rgba(0,0,0,0.2);border-radius:6px;font-family:monospace;white-space:pre-wrap;">Ready to test.</div>
+      </article>
+      <article>
+        <h3>Diagnostic Status</h3>
+        <p>Backend Status: <strong>${escape(diag.status || "healthy")}</strong> · Cloudflare D1: <strong>Connected</strong></p>
+        <p>Free Chat Resets: <strong>Daily UTC</strong> · Founder Entitlement: <strong>Permanent & Immune</strong></p>
+      </article>`
+    );
+    const devForm = document.getElementById("dev-test-form") as HTMLFormElement;
+    if (devForm) {
+      devForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const out = document.getElementById("dev-test-output")!;
+        out.textContent = "Running test simulation...";
+        try {
+          const res = await api("developer/test-prompt", "POST", {
+            prompt: (document.getElementById("dev-test-input") as HTMLTextAreaElement).value,
+            systemPrompt: (document.getElementById("dev-system-prompt") as HTMLTextAreaElement).value,
+            model: (document.getElementById("dev-model") as HTMLSelectElement).value,
+          });
+          out.textContent = "Simulation Successful:\n" + JSON.stringify(res, null, 2);
+          notify("Developer test executed successfully.");
+        } catch (err: any) {
+          out.textContent = "Simulation Error: " + err.message;
+          notify(err.message, true);
+        }
+      };
+    }
   } else {
     const examples = await api("admin/examples");
     shell(

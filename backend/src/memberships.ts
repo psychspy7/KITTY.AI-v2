@@ -2,7 +2,7 @@ import {z} from "zod";
 import {ApiError,type Env,type Identity} from "./types";
 import {seal,unseal} from "./vault";
 import {getConfig} from "./config";
-import {isOwner} from "./auth";
+import {isOwner, isFounder, isFounderOrOwner, FOUNDER_EMAIL} from "./auth";
 const json=(data:unknown)=>Response.json(data,{headers:{"Cache-Control":"private, no-store"}});
 const id=z.string().regex(/^[a-zA-Z0-9-]{1,80}$/);
 export const planSchema=z.object({name:z.string().trim().min(1).max(80),amount:z.number().int().min(100).max(10000000).nullable(),months:z.number().int().min(1).max(12),chatLimit:z.number().int().min(1).max(1000),speechLimit:z.number().int().min(0).max(100),approved:z.boolean(),enabled:z.boolean(),benefits:z.array(z.string().max(180)).max(8)}).strict();
@@ -37,18 +37,40 @@ async function gateway(request:Request,env:Env) {
  const [a,b]=await Promise.all([hash(expected),hash(actual)]);let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];
  if(diff)throw new ApiError(403,"Commerce access required.");
 }
-export async function activeMembership(env:Env,uid:string,product="kitty") {
+export async function activeMembership(env:Env,uid:string,product="kitty",user?:Identity) {
+ if((user&&isFounder(user,env))||(!user&&!!env.OWNER_UID&&uid===env.OWNER_UID&&isFounder({email:env.OWNER_EMAIL},env))) {
+  return {
+   order_id: "founder-complimentary",
+   payment_id: "founder-complimentary",
+   uid: user?.uid || uid,
+   product,
+   mode: "live" as const,
+   chat_limit: 999999,
+   speech_limit: 999999,
+   starts_at: 0,
+   ends_at: 253402300799000,
+   revoked: 0,
+   isFounder: true
+  };
+ }
  const kind=env.ALLOW_TEST_MEMBERSHIPS==="true"?"test":"live";
  return env.DB.prepare("SELECT chat_limit,speech_limit,ends_at FROM commerce_grants WHERE uid=? AND product=? AND mode=? AND revoked=0 AND starts_at<=? AND ends_at>? ORDER BY ends_at DESC LIMIT 1").bind(uid,product,kind,Date.now(),Date.now()).first<{chat_limit:number;speech_limit:number;ends_at:number}>();
 }
 export async function membershipStatus(env:Env,user:Identity) {
- const config=await getConfig(env),s=await settings(env),active=await activeMembership(env,user.uid);
+ if(isFounder(user,env)||isOwner(user,env)) {
+  const s=await settings(env);
+  return {paid:true,expiresAt:253402300799000,freeRemainingSeconds:86400,freeStarted:false,resetAt:253402300799000,chatLimit:999999,speechLimit:999999,membershipAvailable:available(s),membershipUrl:MEMBERSHIPS_URL,feedbackUrl:FEEDBACK_URL,priceLabel:"Rs99/month",freeWindowEnabled:false,isFounder:true,role:"founder",reward:{enabled:false,proposedMessages:5,cooldownDays:30}};
+ }
+ const config=await getConfig(env),s=await settings(env),active=await activeMembership(env,user.uid,"kitty",user);
  const window=await env.DB.prepare("SELECT started_at FROM free_chat_windows WHERE uid=? AND day=?").bind(user.uid,today()).first<{started_at:number}>();
  const remaining=window?Math.max(0,Math.ceil((window.started_at+FREE_SECONDS*1000-Date.now())/1000)):FREE_SECONDS;
- return {paid:!!active,expiresAt:active?.ends_at||0,freeRemainingSeconds:remaining,freeStarted:!!window,resetAt:Date.parse(today()+"T00:00:00Z")+86400000,chatLimit:active?.chat_limit||config.dailyChatLimit,speechLimit:active?.speech_limit??config.dailySpeechLimit,membershipAvailable:available(s)&&(await plans(env)).some(p=>p.product==="kitty"&&p.approved&&p.enabled&&p.amount!==null),membershipUrl:MEMBERSHIPS_URL,feedbackUrl:FEEDBACK_URL,priceLabel:"Rs99/month",freeWindowEnabled:env.MEMBERSHIPS_FREE_WINDOW==="enabled",reward:{enabled:false,proposedMessages:5,cooldownDays:30}};
+ return {paid:!!active,expiresAt:active?.ends_at||0,freeRemainingSeconds:remaining,freeStarted:!!window,resetAt:Date.parse(today()+"T00:00:00Z")+86400000,chatLimit:active?.chat_limit||config.dailyChatLimit,speechLimit:active?.speech_limit??config.dailySpeechLimit,membershipAvailable:available(s)&&(await plans(env)).some(p=>p.product==="kitty"&&p.approved&&p.enabled&&p.amount!==null),membershipUrl:MEMBERSHIPS_URL,feedbackUrl:FEEDBACK_URL,priceLabel:"Rs99/month",freeWindowEnabled:env.MEMBERSHIPS_FREE_WINDOW==="enabled",reward:{enabled:false,proposedMessages:5,cooldownDays:30},isFounder:false,role:"member"};
 }
 export async function checkChatAccess(env:Env,user:Identity) {
- const active=await activeMembership(env,user.uid);
+ if(isFounder(user,env)||isOwner(user,env)) {
+  return activeMembership(env,user.uid,"kitty",user);
+ }
+ const active=await activeMembership(env,user.uid,"kitty",user);
  if(active)return active;
  if(env.MEMBERSHIPS_FREE_WINDOW!=="enabled")return null;
  await env.DB.prepare("INSERT OR IGNORE INTO free_chat_windows VALUES(?,?,?)").bind(user.uid,today(),Date.now()).run();
@@ -66,10 +88,15 @@ export async function reconcile(env:Env,input:{orderId:string;paymentId:string;a
  const revoked=input.refunded>0||input.status==="refunded";
  const captured=input.status==="captured"&&input.captured&&!revoked;
  await env.DB.prepare("INSERT INTO commerce_payments VALUES(?,?,?,?) ON CONFLICT(payment_id) DO UPDATE SET status=excluded.status,updated_at=excluded.updated_at").bind(input.paymentId,order.id,revoked?"refunded":input.status,Date.now()).run();
- if(revoked)await env.DB.batch([
-  env.DB.prepare("UPDATE commerce_orders SET status='refunded' WHERE id=?").bind(order.id),
-  env.DB.prepare("UPDATE commerce_grants SET revoked=1 WHERE order_id=?").bind(order.id),
- ]);
+ if(revoked) {
+  if(order.id.startsWith("founder-")||order.provider_order_id?.startsWith("founder-")) {
+   return {verified:true,paid:false,active:true,expiresAt:253402300799000,testMode:order.mode==="test",status:"refunded"};
+  }
+  await env.DB.batch([
+   env.DB.prepare("UPDATE commerce_orders SET status='refunded' WHERE id=?").bind(order.id),
+   env.DB.prepare("UPDATE commerce_grants SET revoked=1 WHERE order_id=? AND order_id NOT LIKE 'founder%'").bind(order.id),
+  ]);
+ }
  else if(captured&&order.status!=="refunded") {
   await env.DB.prepare("UPDATE commerce_orders SET status='captured' WHERE id=? AND status!='refunded'").bind(order.id).run();
   for(let attempt=0;attempt<5;attempt++) {
@@ -92,7 +119,7 @@ export async function membershipRoute(request:Request,env:Env,path:string,method
  }
  if(!path.startsWith("/api/commerce/")&&!path.startsWith("/api/admin/memberships")&&path!=="/api/memberships/me")return null;
  if(path.startsWith("/api/admin/")) {
-  const user=await authenticate(request,env);if(!isOwner(user,env))throw new ApiError(403,"Owner access required.");
+  const user=await authenticate(request,env);if(!isFounderOrOwner(user,env))throw new ApiError(403,"Owner access required.");
   if(path==="/api/admin/memberships/config"&&method==="GET") {
    const s=await settings(env);return json({enabled:s.enabled,liveApproved:s.liveApproved,mode:mode(s),keyConfigured:!!s.keyId&&!!s.secret,webhookConfigured:!!s.webhook,plans:await plans(env),reward:{enabled:false,proposedMessages:5,cooldownDays:30}});
   }

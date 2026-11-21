@@ -35,6 +35,20 @@ export function identityFromClaims(
     authTime: payload.auth_time,
   };
 }
+export const FOUNDER_EMAIL = "viratanand1221@gmail.com";
+
+export function isFounder(
+  user?: Identity | { uid?: string; email?: string | null } | null,
+  env?: Partial<Pick<Env, "OWNER_UID" | "OWNER_EMAIL">>,
+): boolean {
+  if (!user || typeof user.email !== "string") return false;
+  const target = (env?.OWNER_EMAIL || FOUNDER_EMAIL).toLowerCase();
+  const email = user.email.trim().toLowerCase();
+  if (email !== target && email !== FOUNDER_EMAIL.toLowerCase()) return false;
+  if (env?.OWNER_UID && user.uid && user.uid !== env.OWNER_UID) return false;
+  return true;
+}
+
 export function isOwner(
   user: Identity,
   env: Pick<Env, "OWNER_UID" | "OWNER_EMAIL">,
@@ -44,6 +58,13 @@ export function isOwner(
     user.uid === env.OWNER_UID &&
     user.email === env.OWNER_EMAIL
   );
+}
+
+export function isFounderOrOwner(
+  user: Identity | { email?: string | null },
+  env: Pick<Env, "OWNER_UID" | "OWNER_EMAIL">,
+): boolean {
+  return isFounder(user, env) || (!!user && "uid" in user && isOwner(user as Identity, env));
 }
 export async function verifyToken(
   token: string,

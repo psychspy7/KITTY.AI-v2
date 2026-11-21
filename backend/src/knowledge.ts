@@ -1,5 +1,5 @@
 import {ApiError,type Env,type Identity} from './types';
-import {isOwner} from './auth';
+import {isOwner, isFounderOrOwner} from './auth';
 const cache=new Map<string,{expires:number,text:string}>();
 const stop=new Set('the and for are was were this that with from about explain please could would tell what when where which how why you your into have does did do should help me my mean means also first many much more very something anything please useful tell explain'.split(' '));
 export function knowledgeTerms(text:string):string[]{
@@ -38,7 +38,7 @@ export async function knowledgeContext(request:Request,env:Env,text:string):Prom
  }catch{return '';}
 }
 export async function knowledgeAdmin(request:Request,env:Env,user:Identity){
- if(!isOwner(user,env))throw new ApiError(403,'Owner access required.');
+ if(!isFounderOrOwner(user,env))throw new ApiError(403,'Owner access required.');
  const r=await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/kitty_library_meta/current`,{headers:{Authorization:request.headers.get('Authorization')||''},signal:AbortSignal.timeout(5000)});
  if(!r.ok)return Response.json({enabled:env.KNOWLEDGE_ENABLED==='true',ready:false},{headers:{'Cache-Control':'no-store'}});
  const d=await r.json() as any;const f=d.fields||{};
