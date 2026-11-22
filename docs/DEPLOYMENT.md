@@ -8,7 +8,7 @@ Current release: 13 October 2026. See RELEASE-2.0.md for final validation and li
 - Signed APK: 4,495,385 bytes; SHA256 3bc61fa51b7afd6a51d9464d931cda9bccd27c4dd7b12cbd62bd18092e8159cd. Existing owner signing certificate preserved.
 - Worker version ce7b6131-4b6c-460c-8d0b-9418a4f8b40f, deployed at 100%. No new operational D1 migration in 2.0.
 - Verified public reference library: 500,000,000 UTF8 content bytes, 10,056 packed chunks, Firebase Standard Firestore (default), asia-south1, freeTier true. No billing account linked. Storing references does not fine-tune a model.
-- Original Google identity, provider vault, personality, Aiven context, service settings and memberships preserved. KITTY Plus live checkout remains enabled with INR 99/calendar month, 100 chat and 10 cloud speech requests/day, manual renewal. LISA grants and feedback rewards remain disabled.
+- Original Google identity, provider vault, personality, Aiven context, service settings and memberships preserved. KITTY Plus live checkout remains enabled with INR 99/calendar month, 100 chat and 10 cloud speech requests/day, manual renewal. KITTY ONE is a separate $249 USD / 12-month website patron plan. LISA grants and feedback rewards remain disabled.
 - Future updates require versionCode 12 or higher and the same signing key/package.
 
 ## Historical release and activation log

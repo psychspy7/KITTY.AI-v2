@@ -5,14 +5,14 @@ import {getConfig} from "./config";
 import {isOwner, isFounder, isFounderOrOwner, FOUNDER_EMAIL} from "./auth";
 const json=(data:unknown)=>Response.json(data,{headers:{"Cache-Control":"private, no-store"}});
 const id=z.string().regex(/^[a-zA-Z0-9-]{1,80}$/);
-export const planSchema=z.object({name:z.string().trim().min(1).max(80),amount:z.number().int().min(100).max(10000000).nullable(),months:z.number().int().min(1).max(12),chatLimit:z.number().int().min(1).max(1000),speechLimit:z.number().int().min(0).max(100),approved:z.boolean(),enabled:z.boolean(),benefits:z.array(z.string().max(180)).max(8)}).strict();
+export const planSchema=z.object({name:z.string().trim().min(1).max(80),amount:z.number().int().min(100).max(10000000).nullable(),currency:z.enum(["INR","USD"]).default("INR"),months:z.number().int().min(1).max(12),chatLimit:z.number().int().min(1).max(1000),speechLimit:z.number().int().min(0).max(100),approved:z.boolean(),enabled:z.boolean(),benefits:z.array(z.string().max(180)).max(8)}).strict();
 type Order={id:string;uid:string;product:"kitty"|"lisa";plan_id:string;terms:string;mode:"test"|"live";provider_order_id:string|null;provider_key_id:string;status:string;created_at:number;expires_at:number};
 type Settings={enabled:boolean;liveApproved:boolean;keyId:string;secret:string;webhook:string;previousWebhook?:string};
 const paused=():Settings=>({enabled:false,liveApproved:false,keyId:"",secret:"",webhook:""});
 const today=()=>new Date().toISOString().slice(0,10);
 export const FREE_SECONDS=300;
-export const FEEDBACK_URL="https://kittycorp.vercel.app/contact?subject=Review";
-export const MEMBERSHIPS_URL="https://kittycorp.vercel.app/memberships";
+export const FEEDBACK_URL="https://thekittycorp.com/contact?subject=Review";
+export const MEMBERSHIPS_URL="https://thekittycorp.com/memberships";
 async function settings(env:Env):Promise<Settings> {
  const row=await env.DB.prepare("SELECT data FROM commerce_settings WHERE id=1").first<{data:string}>();
  return row?JSON.parse(row.data):paused();
@@ -59,12 +59,12 @@ export async function activeMembership(env:Env,uid:string,product="kitty",user?:
 export async function membershipStatus(env:Env,user:Identity) {
  if(isFounder(user,env)||isOwner(user,env)) {
   const s=await settings(env);
-  return {paid:true,expiresAt:253402300799000,freeRemainingSeconds:86400,freeStarted:false,resetAt:253402300799000,chatLimit:999999,speechLimit:999999,membershipAvailable:available(s),membershipUrl:MEMBERSHIPS_URL,feedbackUrl:FEEDBACK_URL,priceLabel:"Rs99/month",freeWindowEnabled:false,isFounder:true,role:"founder",reward:{enabled:false,proposedMessages:5,cooldownDays:30}};
+  return {paid:true,expiresAt:253402300799000,patronPaid:true,patronExpiresAt:253402300799000,freeRemainingSeconds:86400,freeStarted:false,resetAt:253402300799000,chatLimit:999999,speechLimit:999999,membershipAvailable:available(s),patronMembershipAvailable:available(s),membershipUrl:MEMBERSHIPS_URL,feedbackUrl:FEEDBACK_URL,priceLabel:"Rs99/month",patronPriceLabel:"$249/year",freeWindowEnabled:false,isFounder:true,role:"founder",reward:{enabled:false,proposedMessages:5,cooldownDays:30}};
  }
- const config=await getConfig(env),s=await settings(env),active=await activeMembership(env,user.uid,"kitty",user);
+ const config=await getConfig(env),s=await settings(env),[active,patron,catalogPlans]=await Promise.all([activeMembership(env,user.uid,"kitty",user),activeMembership(env,user.uid,"kitty-one",user),plans(env)]);
  const window=await env.DB.prepare("SELECT started_at FROM free_chat_windows WHERE uid=? AND day=?").bind(user.uid,today()).first<{started_at:number}>();
  const remaining=window?Math.max(0,Math.ceil((window.started_at+FREE_SECONDS*1000-Date.now())/1000)):FREE_SECONDS;
- return {paid:!!active,expiresAt:active?.ends_at||0,freeRemainingSeconds:remaining,freeStarted:!!window,resetAt:Date.parse(today()+"T00:00:00Z")+86400000,chatLimit:active?.chat_limit||config.dailyChatLimit,speechLimit:active?.speech_limit??config.dailySpeechLimit,membershipAvailable:available(s)&&(await plans(env)).some(p=>p.product==="kitty"&&p.approved&&p.enabled&&p.amount!==null),membershipUrl:MEMBERSHIPS_URL,feedbackUrl:FEEDBACK_URL,priceLabel:"Rs99/month",freeWindowEnabled:env.MEMBERSHIPS_FREE_WINDOW==="enabled",reward:{enabled:false,proposedMessages:5,cooldownDays:30},isFounder:false,role:"member"};
+ return {paid:!!active,expiresAt:active?.ends_at||0,patronPaid:!!patron,patronExpiresAt:patron?.ends_at||0,freeRemainingSeconds:remaining,freeStarted:!!window,resetAt:Date.parse(today()+"T00:00:00Z")+86400000,chatLimit:active?.chat_limit||config.dailyChatLimit,speechLimit:active?.speech_limit??config.dailySpeechLimit,membershipAvailable:available(s)&&catalogPlans.some(p=>p.product==="kitty"&&p.approved&&p.enabled&&p.amount!==null),patronMembershipAvailable:available(s)&&catalogPlans.some(p=>p.product==="kitty-one"&&p.approved&&p.enabled&&p.amount!==null),membershipUrl:MEMBERSHIPS_URL,feedbackUrl:FEEDBACK_URL,priceLabel:"Rs99/month",patronPriceLabel:"$249/year",freeWindowEnabled:env.MEMBERSHIPS_FREE_WINDOW==="enabled",reward:{enabled:false,proposedMessages:5,cooldownDays:30},isFounder:false,role:"member"};
 }
 export async function checkChatAccess(env:Env,user:Identity) {
  if(isFounder(user,env)||isOwner(user,env)) {
@@ -82,7 +82,7 @@ export async function reconcile(env:Env,input:{orderId:string;paymentId:string;a
  const order=await env.DB.prepare("SELECT * FROM commerce_orders WHERE provider_order_id=?").bind(input.orderId).first<Order>();
  if(!order)throw new ApiError(404,"Membership order not found.");
  const terms=planSchema.parse(JSON.parse(order.terms));
- if(input.amount!==terms.amount||input.currency!=="INR")throw new ApiError(409,"Payment does not match this membership order.");
+ if(input.amount!==terms.amount||input.currency!==terms.currency)throw new ApiError(409,"Payment does not match this membership order.");
  const previous=await env.DB.prepare("SELECT order_id FROM commerce_payments WHERE payment_id=?").bind(input.paymentId).first<{order_id:string}>();
  if(previous&&previous.order_id!==order.id)throw new ApiError(409,"Payment belongs to another order.");
  const revoked=input.refunded>0||input.status==="refunded";
@@ -115,7 +115,7 @@ export async function reconcile(env:Env,input:{orderId:string;paymentId:string;a
 export async function membershipRoute(request:Request,env:Env,path:string,method:string,body:(r:Request)=>Promise<unknown>,authenticate:(r:Request,e:Env)=>Promise<Identity>):Promise<Response|null> {
  if(path==="/api/memberships/catalog"&&method==="GET") {
   const s=await settings(env);
-  return json({freeSeconds:FREE_SECONDS,freeResets:"daily UTC",plans:(await plans(env)).map(p=>({...p,purchasable:p.product==="kitty"&&p.enabled&&p.approved&&p.amount!==null&&available(s)})),testMode:mode(s)==="test",purchasesEnabled:available(s),reward:{enabled:false,proposedMessages:5,cooldownDays:30}});
+  return json({freeSeconds:FREE_SECONDS,freeResets:"daily UTC",plans:(await plans(env)).map(p=>({...p,purchasable:p.product!=="lisa"&&p.enabled&&p.approved&&p.amount!==null&&available(s)})),testMode:mode(s)==="test",purchasesEnabled:available(s),reward:{enabled:false,proposedMessages:5,cooldownDays:30}});
  }
  if(!path.startsWith("/api/commerce/")&&!path.startsWith("/api/admin/memberships")&&path!=="/api/memberships/me")return null;
  if(path.startsWith("/api/admin/")) {
@@ -141,7 +141,7 @@ export async function membershipRoute(request:Request,env:Env,path:string,method
    await env.DB.prepare("DELETE FROM commerce_settings WHERE id=1").run();return json({deleted:true});
   }
   if(path==="/api/admin/memberships/plans"&&method==="PUT") {
-   const input=z.object({id,product:z.enum(["kitty","lisa"]),plan:planSchema}).strict().parse(await body(request));
+   const input=z.object({id,product:z.enum(["kitty","kitty-one","lisa"]),plan:planSchema}).strict().parse(await body(request));
    if(input.plan.enabled&&(!input.plan.approved||input.plan.amount===null))throw new ApiError(400,"Approve the price and limits before enabling a plan.");
    if(input.product==="lisa"&&input.plan.enabled)throw new ApiError(400,"LISA access enforcement must be integrated before purchases can be enabled.");
    const existingProduct=await env.DB.prepare("SELECT product FROM commerce_plans WHERE id=?").bind(input.id).first<{product:string}>();
@@ -159,7 +159,7 @@ export async function membershipRoute(request:Request,env:Env,path:string,method
   return json({keyId:s.keyId,keySecret:await unseal(s.secret,env.VAULT_KEY,"commerce:razorpay"),webhookSecret:await unseal(s.webhook,env.VAULT_KEY,"commerce:webhook"),previousWebhookSecret:s.previousWebhook?await unseal(s.previousWebhook,env.VAULT_KEY,"commerce:webhook"):undefined,testMode:mode(s)==="test",enabled:available(s)});
  }
  if(path==="/api/commerce/reconcile"&&method==="POST") {
-  const input=z.object({orderId:z.string().regex(/^order_[A-Za-z0-9]{6,64}$/),paymentId:z.string().regex(/^pay_[A-Za-z0-9]{6,64}$/),amount:z.number().int().positive(),currency:z.literal("INR"),captured:z.boolean(),refunded:z.number().int().min(0),status:z.enum(["created","authorized","captured","failed","refunded"]),eventId:z.string().max(100).optional()}).strict().parse(await body(request));
+  const input=z.object({orderId:z.string().regex(/^order_[A-Za-z0-9]{6,64}$/),paymentId:z.string().regex(/^pay_[A-Za-z0-9]{6,64}$/),amount:z.number().int().positive(),currency:z.enum(["INR","USD"]),captured:z.boolean(),refunded:z.number().int().min(0),status:z.enum(["created","authorized","captured","failed","refunded"]),eventId:z.string().max(100).optional()}).strict().parse(await body(request));
   return json(await reconcile(env,input));
  }
  if(path==="/api/commerce/order"&&method==="POST") {
@@ -175,7 +175,7 @@ export async function membershipRoute(request:Request,env:Env,path:string,method
   const input=z.object({id:z.string().uuid(),planId:id}).strict().parse(await body(request));
   const s=await settings(env),plan=(await plans(env)).find(p=>p.id===input.planId);
   if(!available(s)||!plan?.approved||!plan.enabled||plan.amount===null)throw new ApiError(503,"Membership purchases are not available yet.");
-  if(plan.product!=="kitty")throw new ApiError(503,"LISA memberships are not available yet.");
+  if(plan.product==="lisa")throw new ApiError(503,"LISA memberships are not available yet.");
   const existing=await env.DB.prepare("SELECT * FROM commerce_orders WHERE id=?").bind(input.id).first<Order>();
   if(existing) {
    if(existing.uid!==user.uid||existing.plan_id!==plan.id)throw new ApiError(409,"Checkout belongs to another account or plan.");
@@ -193,9 +193,9 @@ export async function membershipRoute(request:Request,env:Env,path:string,method
   if(!row)throw new ApiError(404,"Checkout not found.");
   if(method==="GET")return json({...row,terms:JSON.parse(row.terms)});
   if(method==="PUT") {
-   const input=z.object({orderId:z.string().regex(/^order_[A-Za-z0-9]{6,64}$/),amount:z.number().int(),currency:z.literal("INR")}).strict().parse(await body(request));
+   const input=z.object({orderId:z.string().regex(/^order_[A-Za-z0-9]{6,64}$/),amount:z.number().int(),currency:z.enum(["INR","USD"])}).strict().parse(await body(request));
    const terms=planSchema.parse(JSON.parse(row.terms));
-   if(input.amount!==terms.amount||row.expires_at<Date.now())throw new ApiError(409,"Checkout expired or amount changed.");
+   if(input.amount!==terms.amount||input.currency!==terms.currency||row.expires_at<Date.now())throw new ApiError(409,"Checkout expired or amount changed.");
    await env.DB.prepare("UPDATE commerce_orders SET provider_order_id=? WHERE id=? AND uid=? AND provider_order_id IS NULL").bind(input.orderId,row.id,user.uid).run();
    const saved=await env.DB.prepare("SELECT provider_order_id FROM commerce_orders WHERE id=?").bind(row.id).first<{provider_order_id:string}>();
    if(saved?.provider_order_id!==input.orderId)throw new ApiError(409,"This checkout already has a different order.");

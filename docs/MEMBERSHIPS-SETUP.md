@@ -1,5 +1,12 @@
 # KITTY memberships — setup and acceptance checklist
 
+## Current product separation — 22 November 2026
+
+- **KITTY ONE (website patron membership):** $249 USD for 12 months; dedicated plan/product ID `kitty-one`. It is separate from the Android app subscription and grants a website patron entitlement only.
+- **KITTY Plus (Android AI app):** ₹99 INR per calendar month; existing plan/product ID `kitty-plus` / `kitty` is unchanged.
+- Both use the same verified Google identity, but the two entitlements are stored and checked separately. Buying KITTY ONE must not silently change KITTY Plus access or pricing.
+
+
 KITTY 1.8.0/code10, its backend/owner console and D1 migration0005 are live, published with owner approval on 12 October 2026. Current KITTY Plus LIVE checkout is enabled after the owner purchasing request and verified readiness; LISA/rewards remain disabled. The private Worker commerce gateway now passes live authentication checks and the matching server values are saved in the canonical website's ignored .env.local. The website task installed its encrypted server runtime bridge; the hosted matching webhook signature path is now verified by the KITTY activation preflight. Firebase's kittycorp.vercel.app authorized domain was verified using the existing owner CLI session, preserving all previous domains.
 
 ## Plan and account rules

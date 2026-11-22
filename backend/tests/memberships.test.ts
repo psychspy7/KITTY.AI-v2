@@ -13,18 +13,27 @@ const config={enabled:true,liveApproved:false,keyId:"rzp_test_fixture",keySecret
 beforeAll(async()=>{
  mf=new Miniflare({modules:true,script:'export default {fetch(){return new Response("OK")}}',d1Databases:["DB"]});
  env={DB:await mf.getD1Database("DB") as unknown as D1Database,OWNER_EMAIL:owner.email,OWNER_UID:owner.uid,VAULT_KEY:btoa("12345678901234567890123456789012"),COMMERCE_GATEWAY_TOKEN:gateway,ALLOW_TEST_MEMBERSHIPS:"true",MEMBERSHIPS_FREE_WINDOW:"enabled",ASSETS:{} as Fetcher,FIREBASE_PROJECT_ID:"fixture",RELEASE_REPOSITORY:"fixture"};
- for(const file of ["0001.sql","0005_memberships.sql"])for(const sql of readFileSync(new URL("../migrations/"+file,import.meta.url),"utf8").split(";").map(x=>x.trim()).filter(Boolean))await env.DB.prepare(sql).run();
+ for(const file of ["0001.sql","0005_memberships.sql","0006_kitty_one_membership.sql"])for(const sql of readFileSync(new URL("../migrations/"+file,import.meta.url),"utf8").split(";").map(x=>x.trim()).filter(Boolean))await env.DB.prepare(sql).run();
 });
 afterAll(async()=>mf.dispose());
 beforeEach(async()=>{
  for(const t of ["commerce_grants","commerce_payments","commerce_webhooks","commerce_orders","commerce_settings","free_chat_windows"])await env.DB.prepare("DELETE FROM "+t).run();
  env.ALLOW_TEST_MEMBERSHIPS="true";
- await env.DB.prepare("UPDATE commerce_plans SET data=json_set(data,'$.enabled',json('false')) WHERE id='kitty-plus'").run();
+ await env.DB.prepare("UPDATE commerce_plans SET data=json_set(data,'$.enabled',json('false')) WHERE id IN ('kitty-plus','kitty-one')").run();
 });
 async function ready() {
  await call(owner,"admin/memberships/config","PUT",config);
  await env.DB.prepare("UPDATE commerce_plans SET data=json_set(data,'$.enabled',json('true')) WHERE id='kitty-plus'").run();
 }
+async function patronOrder(user=alice,index=1) {
+ const id=crypto.randomUUID();
+ const response=await call(user,"commerce/intents","POST",{id,planId:"kitty-one"});
+ expect(response?.status).toBe(200);
+ const provider="order_Patron"+String(index).padStart(6,"0");
+ await call(user,"commerce/intents/"+id,"PUT",{orderId:provider,amount:24900,currency:"USD"});
+ return {id,provider};
+}
+const patronPayment=(orderId:string,paymentId="pay_Patron000001")=>({orderId,paymentId,amount:24900,currency:"USD",captured:true,refunded:0,status:"captured"});
 async function order(user=alice,index=1) {
  const id=crypto.randomUUID();
  const response=await call(user,"commerce/intents","POST",{id,planId:"kitty-plus"});
@@ -55,6 +64,24 @@ describe("membership ownership and access",()=>{
   await expect(call(bob,"commerce/intents","POST",{id:o.id,planId:"kitty-plus"})).rejects.toMatchObject({status:409});
   await expect(call(alice,"commerce/intents/"+o.id,"PUT",{orderId:"order_Changed0001",amount:1,currency:"INR"})).rejects.toMatchObject({status:409});
   await expect(call(alice,"commerce/intents","POST",{id:crypto.randomUUID(),planId:"kitty-plus",amount:1})).rejects.toThrow();
+ });
+ it("keeps KITTY ONE USD annual patron access separate from KITTY Plus INR monthly app access",async()=>{
+  await ready();
+  await env.DB.prepare("UPDATE commerce_plans SET data=json_set(data,'$.enabled',json('true')) WHERE id='kitty-one'").run();
+  const catalogue=await (await call(alice,"memberships/catalog")).json() as any;
+  const kittyPlus=catalogue.plans.find((p:any)=>p.id==="kitty-plus");
+  const kittyOne=catalogue.plans.find((p:any)=>p.id==="kitty-one");
+  expect(kittyPlus).toMatchObject({product:"kitty",amount:9900,currency:"INR",months:1});
+  expect(kittyOne).toMatchObject({product:"kitty-one",amount:24900,currency:"USD",months:12,purchasable:true});
+  const o=await patronOrder();
+  await expect(call(alice,"commerce/intents/"+o.id,"PUT",{orderId:"order_WrongCurrency0001",amount:24900,currency:"INR"})).rejects.toMatchObject({status:409});
+  await expect(call(alice,"commerce/reconcile","POST",{...patronPayment(o.provider),currency:"INR"})).rejects.toMatchObject({status:409});
+  await call(alice,"commerce/reconcile","POST",patronPayment(o.provider));
+  expect(await activeMembership(env,alice.uid,"kitty-one")).not.toBeNull();
+  expect(await activeMembership(env,alice.uid,"kitty")).toBeNull();
+  const status=await membershipStatus(env,alice);
+  expect(status.patronPaid).toBe(true);
+  expect(status.paid).toBe(false);
  });
  it("grants only captured payments and handles duplicate callback/webhook delivery once",async()=>{
   await ready();const o=await order();
