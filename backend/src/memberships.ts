@@ -6,7 +6,7 @@ import {isOwner, isFounder, isFounderOrOwner, FOUNDER_EMAIL} from "./auth";
 const json=(data:unknown)=>Response.json(data,{headers:{"Cache-Control":"private, no-store"}});
 const id=z.string().regex(/^[a-zA-Z0-9-]{1,80}$/);
 export const planSchema=z.object({name:z.string().trim().min(1).max(80),amount:z.number().int().min(100).max(10000000).nullable(),currency:z.enum(["INR","USD"]).default("INR"),months:z.number().int().min(1).max(12),chatLimit:z.number().int().min(1).max(1000),speechLimit:z.number().int().min(0).max(100),approved:z.boolean(),enabled:z.boolean(),benefits:z.array(z.string().max(180)).max(8)}).strict();
-type Order={id:string;uid:string;product:"kitty"|"lisa";plan_id:string;terms:string;mode:"test"|"live";provider_order_id:string|null;provider_key_id:string;status:string;created_at:number;expires_at:number};
+type Order={id:string;uid:string;product:"kitty"|"kitty-one"|"lisa";plan_id:string;terms:string;mode:"test"|"live";provider_order_id:string|null;provider_key_id:string;status:string;created_at:number;expires_at:number};
 type Settings={enabled:boolean;liveApproved:boolean;keyId:string;secret:string;webhook:string;previousWebhook?:string};
 const paused=():Settings=>({enabled:false,liveApproved:false,keyId:"",secret:"",webhook:""});
 const today=()=>new Date().toISOString().slice(0,10);
